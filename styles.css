@@ -182,3 +182,8 @@ tr:last-child td{border-bottom:0}
   .settings-grid{grid-template-columns:1fr}.calendar{overflow-x:auto}.calendar-head,.calendar-grid{min-width:760px}.cal-day{min-height:104px}
   .month-toolbar{align-items:flex-start}.month-toolbar .group{flex-wrap:wrap;justify-content:flex-end}.topbar-actions .refresh-btn{display:none}
 }
+/* V0.2.2 student colors / login PIN */
+.student-color-swatch{display:inline-block;width:26px;height:26px;border-radius:8px;border:1px solid rgba(0,0,0,.10);box-shadow:inset 0 0 0 1px rgba(255,255,255,.35)}
+.color-field{display:flex;align-items:center;gap:10px;min-height:45px;border:1px solid var(--line);border-radius:11px;padding:7px 10px;background:#fff}
+.color-field input[type="color"]{width:46px;height:30px;border:0;padding:0;background:transparent;cursor:pointer}
+.color-field span{font-size:11px;color:var(--muted);font-weight:700}
