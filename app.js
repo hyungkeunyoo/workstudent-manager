@@ -41,6 +41,11 @@
     const c=color||STUDENT_COLORS[0];
     return `background:${esc(c)};border-color:${esc(c)};color:#17211c`;
   }
+  function studentColorLegend(d){
+    const students=(d?.students||[]).filter(s=>s.ACTIVE!=="N");
+    if(!students.length)return "";
+    return `<div class="student-color-legend"><strong>학생별 색상</strong>${students.map(s=>`<span><i style="background:${esc(studentColor(d,s.STUDENT_KEY))}"></i>${esc(s.NAME)}</span>`).join("")}</div>`;
+  }
   function nextStudentColor(students,currentKey=""){
     const used=new Set((students||[]).filter(x=>x.STUDENT_KEY!==currentKey&&x.ACTIVE!=="N").map(x=>String(x.STUDENT_COLOR||"").toUpperCase()));
     return STUDENT_COLORS.find(c=>!used.has(c.toUpperCase())) || STUDENT_COLORS[(students||[]).length%STUDENT_COLORS.length];
@@ -255,18 +260,63 @@
     validAbsences(d,date).filter(a=>a.STATUS==="대타확정"&&a.SUBSTITUTE_KEY===key).forEach(a=>out.push({type:"sub",label:`${a.START}~${a.END}`,title:`${a.NAME} 대타`,a}));
     (d.extraShifts||[]).filter(sh=>sh.STATUS==="모집중"&&sh.DATE===date).forEach(sh=>{if((d.extraJoins||[]).some(j=>j.SHIFT_ID===sh.SHIFT_ID&&j.STUDENT_KEY===key&&j.STATUS==="신청"))out.push({type:"extra",label:`${sh.START}~${sh.END}`,title:`추가 · ${sh.TITLE}`,sh});});return out;
   }
+  function eventInterval_(e){
+    const m=String(e?.label||"").match(/^(\d{2}:\d{2})~(\d{2}:\d{2})$/);
+    return m?{start:m[1],end:m[2]}:null;
+  }
+  function groupCalendarEvents_(events){
+    const timed=events.map((e,i)=>({e,i,iv:eventInterval_(e)}));
+    const result=[], withTime=timed.filter(x=>x.iv).sort((a,b)=>a.iv.start.localeCompare(b.iv.start)||a.iv.end.localeCompare(b.iv.end));
+    let group=[], maxEnd="";
+    withTime.forEach(x=>{
+      if(!group.length){group=[x];maxEnd=x.iv.end;return;}
+      if(x.iv.start<maxEnd){group.push(x);if(x.iv.end>maxEnd)maxEnd=x.iv.end;}
+      else{result.push(group);group=[x];maxEnd=x.iv.end;}
+    });
+    if(group.length)result.push(group);
+    timed.filter(x=>!x.iv).forEach(x=>result.push([x]));
+    return result;
+  }
+  function calendarEventHTML_(d,e){
+    const fixed=e.type==="fixed";
+    const style=fixed?` style="${studentChipStyle(studentColor(d,e.studentKey))}"`:"";
+    const cls=fixed?"fixed":e.type==="absence"?"absent":e.type==="sub"?"sub":e.type==="extra"?"extra":"";
+    return `<div class="cal-event ${cls}"${style}><span class="cal-event-time">${esc(e.label)}</span><span class="cal-event-name">${esc(e.title)}</span></div>`;
+  }
   function calendarHTML(d,month,studentKey=null){
     const y=month.getFullYear(),m=month.getMonth(),first=new Date(y,m,1),start=addDays(first,-first.getDay()),today=isoDate(new Date());let cells="";
-    for(let i=0;i<42;i++){const x=addDays(start,i),date=isoDate(x),outside=x.getMonth()!==m,h=holidayFor(d,date);let events=[];
+    for(let i=0;i<42;i++){
+      const x=addDays(start,i),date=isoDate(x),outside=x.getMonth()!==m,h=holidayFor(d,date);let events=[];
       if(studentKey){
         events=currentStudentScheduleEvents(d,studentKey,date).map(e=>({...e,studentKey:e.type==="sub"?e.a?.SUBSTITUTE_KEY:studentKey}));
       }else{
-        const entries=activeSchedulesForDate(d,date);entries.forEach(({s,iv})=>{const a=validAbsences(d,date).find(a=>a.STUDENT_KEY===s.STUDENT_KEY&&overlap(a.START,a.END,iv.start,iv.end));if(!a)events.push({type:"fixed",label:`${iv.start}~${iv.end}`,title:s.NAME,studentKey:s.STUDENT_KEY});else if(a.STATUS==="대타확정")events.push({type:"sub",label:`${a.START}~${a.END}`,title:`${a.SUBSTITUTE_NAME}↺`,studentKey:a.SUBSTITUTE_KEY});else events.push({type:"absence",label:`${a.START}~${a.END}`,title:`공석(${s.NAME})`});});
-        (d.extraShifts||[]).filter(sh=>sh.STATUS!=="삭제"&&sh.DATE===date).forEach(sh=>{const joined=(d.extraJoins||[]).filter(j=>j.SHIFT_ID===sh.SHIFT_ID&&j.STATUS==="신청").length;events.push({type:"extra",label:`${sh.START}~${sh.END}`,title:`${sh.TITLE} ${joined}/${sh.CAPACITY}`});});
+        const entries=activeSchedulesForDate(d,date);
+        entries.forEach(({s,iv})=>{
+          const a=validAbsences(d,date).find(a=>a.STUDENT_KEY===s.STUDENT_KEY&&overlap(a.START,a.END,iv.start,iv.end));
+          if(!a)events.push({type:"fixed",label:`${iv.start}~${iv.end}`,title:s.NAME,studentKey:s.STUDENT_KEY});
+          else if(a.STATUS==="대타확정")events.push({type:"sub",label:`${a.START}~${a.END}`,title:`${a.SUBSTITUTE_NAME}↺`,studentKey:a.SUBSTITUTE_KEY});
+          else events.push({type:"absence",label:`${a.START}~${a.END}`,title:`공석(${s.NAME})`});
+        });
+        (d.extraShifts||[]).filter(sh=>sh.STATUS!=="삭제"&&sh.DATE===date).forEach(sh=>{
+          const joined=(d.extraJoins||[]).filter(j=>j.SHIFT_ID===sh.SHIFT_ID&&j.STATUS==="신청").length;
+          events.push({type:"extra",label:`${sh.START}~${sh.END}`,title:`${sh.TITLE} ${joined}/${sh.CAPACITY}`});
+        });
       }
-      cells+=`<div class="cal-day ${outside?"outside":""} ${h?"holiday":""} ${date===today?"today":""}"><div class="cal-date"><span>${x.getDate()}</span>${h?`<span class="holiday-name">${esc(h.NAME)}</span>`:""}</div>${events.slice(0,5).map(e=>{const fixed=e.type==="fixed";const style=fixed?` style="${studentChipStyle(studentColor(d,e.studentKey))}"`:"";return `<div class="cal-event ${e.type==="absence"?"absent":e.type==="sub"?"sub":e.type==="extra"?"extra":""}"${style}>${esc(e.label)} ${esc(e.title)}</div>`;}).join("")}${events.length>5?`<div class="cal-event muted">+${events.length-5}건</div>`:""}</div>`;
+
+      const shown=events.slice(0,6);
+      const groups=groupCalendarEvents_(shown);
+      const eventHTML=groups.map(g=>{
+        if(g.length===1)return `<div class="cal-event-row">${calendarEventHTML_(d,g[0].e)}</div>`;
+        return `<div class="cal-event-row overlap">${g.map(x=>calendarEventHTML_(d,x.e)).join("")}</div>`;
+      }).join("");
+
+      cells+=`<div class="cal-day ${outside?"outside":""} ${h?"holiday":""} ${date===today?"today":""}">
+        <div class="cal-date"><span>${x.getDate()}</span>${h?`<span class="holiday-name">${esc(h.NAME)}</span>`:""}</div>
+        ${eventHTML}
+        ${events.length>6?`<div class="cal-event muted">+${events.length-6}건</div>`:""}
+      </div>`;
     }
-    return `<div class="calendar"><div class="calendar-head">${ALL_DAYS.map(x=>`<div>${x}</div>`).join("")}</div><div class="calendar-grid">${cells}</div></div><div class="legend"><span>학생별 색상: 정규근무</span><span>빨강: 출근불가/공석</span><span>파랑: 대타</span><span>주황: 추가근무</span><span>연빨강 배경: 공휴일</span></div>`;
+    return `<div class="calendar"><div class="calendar-head">${ALL_DAYS.map(x=>`<div>${x}</div>`).join("")}</div><div class="calendar-grid">${cells}</div></div><div class="legend"><span>빨강: 출근불가/공석</span><span>파랑: 대타</span><span>주황: 추가근무</span><span>연빨강 배경: 공휴일</span></div>`;
   }
   function weekBoard(d,anchor){
     const mon=mondayOf(anchor),dates=DAYS.map((day,i)=>({day,date:isoDate(addDays(mon,i)),label:`${addDays(mon,i).getMonth()+1}/${addDays(mon,i).getDate()}`}));const slots=[];for(let h=9;h<17;h++){slots.push(`${String(h).padStart(2,"0")}:00`);slots.push(`${String(h).padStart(2,"0")}:30`);}let html=`<div class="week-board"><div class="week-grid"><div class="week-cell head">시간</div>${dates.map(dy=>`<div class="week-cell head">${dy.day}<br><small>${dy.label}${holidayFor(d,dy.date)?` · ${esc(holidayFor(d,dy.date).NAME)}`:""}</small></div>`).join("")}`;
@@ -283,7 +333,7 @@
   function renderAdminDashboard(){const d=state.adminData,open=d.absences.filter(a=>a.STATUS==="대타모집"),apps=d.substitutes.filter(x=>x.STATUS==="신청"),warn=weeklySummary(d).filter(x=>x.maxHours>x.limit);$("#page-content").innerHTML=`<div class="grid cols-4">${statCard("활성 학생",d.students.filter(s=>s.ACTIVE==="Y").length,"명")}${statCard("대타 필요",open.length,"건","red")}${statCard("대타 지원",apps.length,"건","amber")}${statCard("주간시간 초과",warn.length,"명",warn.length?"red":"green")}</div><div class="section-head"><div><h3>이번 주 근무표</h3><p>공휴일과 결근·대타 상태까지 반영된 실제 표시야.</p></div><button class="soft" data-go="admin-schedule">주·월 근무표</button></div>${weekBoard(d,preferredAnchor(d))}<div class="grid cols-2" style="margin-top:20px"><div class="card"><h3>대타가 필요한 일정</h3>${open.length?open.slice(0,5).map(a=>`<div class="list-card" style="margin-top:8px"><strong>${fmtDate(a.DATE)} ${esc(a.START)}~${esc(a.END)}</strong><p>${esc(a.NAME)} · ${esc(a.REASON)}</p></div>`).join(""):'<div class="empty">현재 없음</div>'}</div><div class="card"><h3>운영 상태</h3>${warn.length?`<div class="warning-box"><strong>주간 근로시간 초과 경고</strong>${warn.map(x=>`${esc(x.student.NAME)} ${x.maxHours.toFixed(1)}시간 / ${x.limit}시간`).join("<br>")}</div>`:'<div class="ok-box">현재 등록된 일정 기준으로 주간 최대시간 초과 학생은 없어.</div>'}<div class="source-note" style="margin-top:10px">현재 구간: ${esc(periodType(d,isoDate(new Date()))||"운영기간 외")} · ${esc(workHours(d,isoDate(new Date())).mode)}</div></div></div>`;$$('[data-go]').forEach(b=>b.onclick=()=>navigate(b.dataset.go));}
 
   // ---------------- ADMIN SCHEDULE ----------------
-  function renderAdminSchedule(){const d=state.adminData;ensureAdminPeriodAnchors(d);$("#page-content").innerHTML=`<details class="collapse" open><summary><span>주별 근무표</span><small>${fmtDate(isoDate(mondayOf(ui.adminWeekAnchor)))} 주간</small></summary><div class="collapse-body"><div class="month-toolbar"><div class="group"><button class="ghost compact week-prev">← 이전 주</button><button class="ghost compact week-today">이번 주</button><button class="ghost compact week-next">다음 주 →</button></div><button class="primary add-schedule">근무시간 추가</button></div>${weekBoard(d,ui.adminWeekAnchor)}</div></details><details class="collapse"><summary><span>월별 근무표</span><small>${fmtMonth(ui.adminMonth)}</small></summary><div class="collapse-body"><div class="month-toolbar"><h3>${fmtMonth(ui.adminMonth)}</h3><div class="group"><button class="ghost compact month-prev">←</button><button class="ghost compact month-now">이번 달</button><button class="ghost compact month-next">→</button></div></div>${calendarHTML(d,ui.adminMonth,null)}</div></details><div class="section-head"><div><h3>고정근무 목록</h3><p>학기중/방학중 표를 따로 등록할 수 있어. 단축근무 기간에는 시작시각이 자동으로 보정돼.</p></div><button class="primary add-schedule">근무시간 추가</button></div><div class="table-wrap"><table><thead><tr><th>학생</th><th>구분</th><th>기간</th><th>요일</th><th>시간</th><th>점심예외</th><th></th></tr></thead><tbody>${d.schedules.filter(s=>s.ACTIVE==="Y").map(s=>`<tr><td><strong>${esc(s.NAME)}</strong></td><td>${esc(s.WORK_TYPE)}</td><td>${badge(s.PERIOD_TYPE,s.PERIOD_TYPE==="학기중"?"green":"blue")}</td><td>${esc(s.DAY)}</td><td>${esc(s.START)} ~ ${esc(s.END)}</td><td>${s.LUNCH_ALLOWED==="Y"?badge("허용","amber"):"-"}</td><td><button class="danger compact del-schedule" data-id="${esc(s.SCHEDULE_ID)}">삭제</button></td></tr>`).join("")||'<tr><td colspan="7" class="empty">근무표가 없어.</td></tr>'}</tbody></table></div>`;
+  function renderAdminSchedule(){const d=state.adminData;ensureAdminPeriodAnchors(d);$("#page-content").innerHTML=`<details class="collapse" open><summary><span>주별 근무표</span><small>${fmtDate(isoDate(mondayOf(ui.adminWeekAnchor)))} 주간</small></summary><div class="collapse-body"><div class="month-toolbar"><div class="group"><button class="ghost compact week-prev">← 이전 주</button><button class="ghost compact week-today">이번 주</button><button class="ghost compact week-next">다음 주 →</button></div><button class="primary add-schedule">근무시간 추가</button></div>${weekBoard(d,ui.adminWeekAnchor)}</div></details><details class="collapse"><summary><span>월별 근무표</span><small>${fmtMonth(ui.adminMonth)}</small></summary><div class="collapse-body"><div class="month-toolbar"><h3>${fmtMonth(ui.adminMonth)}</h3><div class="group"><button class="ghost compact month-prev">←</button><button class="ghost compact month-now">이번 달</button><button class="ghost compact month-next">→</button></div></div>${calendarHTML(d,ui.adminMonth,null)}${studentColorLegend(d)}</div></details><div class="section-head"><div><h3>고정근무 목록</h3><p>학기중/방학중 표를 따로 등록할 수 있어. 단축근무 기간에는 시작시각이 자동으로 보정돼.</p></div><button class="primary add-schedule">근무시간 추가</button></div><div class="table-wrap"><table><thead><tr><th>학생</th><th>구분</th><th>기간</th><th>요일</th><th>시간</th><th>점심예외</th><th></th></tr></thead><tbody>${d.schedules.filter(s=>s.ACTIVE==="Y").map(s=>`<tr><td><strong>${esc(s.NAME)}</strong></td><td>${esc(s.WORK_TYPE)}</td><td>${badge(s.PERIOD_TYPE,s.PERIOD_TYPE==="학기중"?"green":"blue")}</td><td>${esc(s.DAY)}</td><td>${esc(s.START)} ~ ${esc(s.END)}</td><td>${s.LUNCH_ALLOWED==="Y"?badge("허용","amber"):"-"}</td><td><button class="danger compact del-schedule" data-id="${esc(s.SCHEDULE_ID)}">삭제</button></td></tr>`).join("")||'<tr><td colspan="7" class="empty">근무표가 없어.</td></tr>'}</tbody></table></div>`;
     $$('.add-schedule').forEach(b=>b.onclick=openScheduleModal);$('.week-prev').onclick=()=>{ui.adminWeekAnchor=addDays(ui.adminWeekAnchor,-7);renderAdminSchedule();};$('.week-next').onclick=()=>{ui.adminWeekAnchor=addDays(ui.adminWeekAnchor,7);renderAdminSchedule();};$('.week-today').onclick=()=>{ui.adminWeekAnchor=new Date();renderAdminSchedule();};$('.month-prev').onclick=()=>{ui.adminMonth=new Date(ui.adminMonth.getFullYear(),ui.adminMonth.getMonth()-1,1);renderAdminSchedule();};$('.month-next').onclick=()=>{ui.adminMonth=new Date(ui.adminMonth.getFullYear(),ui.adminMonth.getMonth()+1,1);renderAdminSchedule();};$('.month-now').onclick=()=>{ui.adminMonth=new Date();renderAdminSchedule();};$$('.del-schedule').forEach(b=>b.onclick=async()=>{if(!confirm('이 고정근무를 삭제할까?'))return;await actAndReload('deleteSchedule',{scheduleId:b.dataset.id},'근무시간을 삭제했어.','admin-schedule');});}
   function openScheduleModal(){const d=state.adminData,students=d.students.filter(s=>s.ACTIVE==="Y");showModal("고정근무 추가",`<form id="schedule-form"><div class="form-grid"><label class="full">학생<select name="studentKey">${students.map(s=>`<option value="${esc(s.STUDENT_KEY)}">${esc(s.NAME)} · ${esc(s.WORK_TYPE)}</option>`).join("")}</select></label><label>기간구분<select name="periodType"><option>학기중</option><option>방학중</option></select></label><label>요일<select name="day">${DAYS.map(x=>`<option>${x}</option>`).join("")}</select></label><label>시작<input type="time" name="start" min="09:00" max="17:00" value="09:00" required></label><label>종료<input type="time" name="end" min="09:00" max="17:00" value="12:00" required></label><label class="full">점심 12~13시<select name="lunchAllowed"><option value="N">원칙대로 근무 제외</option><option value="Y">관리자 예외 허용</option></select></label></div><div class="source-note" style="margin-top:12px">단축근무 기간에는 설정된 출근 가능 시각보다 이른 시간은 화면·예산 계산에서 자동으로 잘려서 반영돼.</div><div class="form-actions"><button type="button" class="ghost modal-cancel">취소</button><button class="primary">추가</button></div></form>`);$('.modal-cancel').onclick=closeModal;$('#schedule-form').onsubmit=async e=>{e.preventDefault();const o=Object.fromEntries(new FormData(e.target));if(timeMin(o.start)>=timeMin(o.end)){toast('시작/종료 시간을 확인해줘.');return;}try{await api('addSchedule',{...state.auth,...o});closeModal();toast('근무시간을 추가했어.');navigate('admin-schedule');}catch(err){toast(err.message);}};}
 
