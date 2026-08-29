@@ -2,7 +2,7 @@
   const CONFIG = window.WORK_CONFIG || {};
   const DAYS = ["월","화","수","목","금"];
   const ALL_DAYS = ["일","월","화","수","목","금","토"];
-  const state = { mode:null, auth:null, student:null, adminData:null, studentData:null, view:null };
+  const state = { mode:null, auth:null, student:null, adminData:null, studentData:null, publicSettings:null, view:null };
   const ui = { adminWeekAnchor:new Date(), adminMonth:new Date(), studentMonth:new Date() };
   const STUDENT_COLORS = [
     "#D9EAF7", "#FCE2C4", "#DDF1E0", "#F7DCE8", "#E5E0F7",
@@ -94,7 +94,13 @@
       SEMESTER_START:"2026-09-01",CLASS_END:"2026-12-21",MAKEUP_DATE:"2026-12-22",SEMESTER_END:"2026-12-22",
       BREAK_START:"2026-12-23",BREAK_END:"2027-02-28",SHORT_START:"",SHORT_END:"",
       NORMAL_START_TIME:"09:00",NORMAL_END_TIME:"17:00",SHORT_START_TIME:"10:00",SHORT_END_TIME:"17:00",
-      SEMESTER_WEEK_LIMIT:"20",BREAK_WEEK_LIMIT:"30",WAGE_2026:"10320",WAGE_2027:"10700"
+      SEMESTER_WEEK_LIMIT:"20",BREAK_WEEK_LIMIT:"30",WAGE_2026:"10320",WAGE_2027:"10700",
+      STUDENT_HOME_MESSAGE:"오늘도 필요한 일만 차근차근 처리해줘.",
+      STUDENT_NO_WORK_MESSAGE:"오늘은 정규 근무가 없어.",
+      HANDOVER_PDF_LABEL:"근로장학생 업무 인수인계서 보기",
+      HANDOVER_PDF_URL:"./근로장학생_업무_인수인계서_샘플.pdf",
+      DONATION_LINK_LABEL:"무인기부코너 관리 시트",
+      DONATION_LINK_URL:"https://www.naver.com/"
     };
     const holidays=[
       ["2026-09-24","추석 연휴"],["2026-09-25","추석"],["2026-09-26","추석 연휴"],["2026-10-03","개천절"],["2026-10-05","개천절 대체공휴일"],["2026-10-09","한글날"],["2026-12-25","성탄절"],
@@ -117,6 +123,10 @@
   function mockDashboard(db){return {students:db.students,schedules:db.schedules,holidays:db.holidays,budgets:db.budgets,settings:db.settings,absences:db.absences,substitutes:db.substitutes,extraShifts:db.extraShifts,extraJoins:db.extraJoins,notices:db.notices};}
   async function mockApi(action,p){
     await new Promise(r=>setTimeout(r,60));const db=readMock();
+    if(action==="getPublicSettings"){return {ok:true,settings:{
+      SYSTEM_NAME:db.settings.SYSTEM_NAME,TERM_NAME:db.settings.TERM_NAME,
+      HANDOVER_PDF_LABEL:db.settings.HANDOVER_PDF_LABEL,HANDOVER_PDF_URL:db.settings.HANDOVER_PDF_URL
+    }};}
     if(action==="getDemoStudents") return {ok:true,students:db.students.filter(x=>x.ACTIVE==="Y").map(x=>({STUDENT_KEY:x.STUDENT_KEY,NAME:x.NAME}))};
     if(action==="studentLogin"){const s=mockAuthStudent(db,p);return {ok:true,student:s};}
     if(action==="adminLogin"){mockAdmin(db,p);return {ok:true};}
@@ -229,10 +239,39 @@
     return (d.students||[]).filter(x=>x.ACTIVE==="Y").map(st=>({student:st,...(map[st.STUDENT_KEY]||{maxHours:0,weekStart:"",period:"학기중",limit:num(s.SEMESTER_WEEK_LIMIT)})}));
   }
 
+  async function loadPublicSettings(){
+    try{
+      const r=await api("getPublicSettings");
+      const s=r?.settings||{};
+      state.publicSettings=s;
+      if(s.SYSTEM_NAME) $("#login-system-name").textContent=s.SYSTEM_NAME;
+      if(s.TERM_NAME) $("#login-term").textContent=s.TERM_NAME;
+      const link=$("#login-handover-link");
+      if(link && s.HANDOVER_PDF_URL){
+        link.href=s.HANDOVER_PDF_URL;
+        $("#login-handover-label").textContent=s.HANDOVER_PDF_LABEL||"근로장학생 업무 인수인계서 보기";
+        link.classList.remove("hidden");
+      }else if(link){
+        link.classList.add("hidden");
+      }
+    }catch(e){
+      // 로그인 화면 자체는 즉시 보여주고, 공개 링크 로딩 실패는 로그인 기능을 막지 않는다.
+      console.warn("공개 설정 로딩 실패",e);
+    }
+  }
+  function studentQuickLinks(d){
+    const s=dataSettings(d), links=[];
+    if(s.HANDOVER_PDF_URL) links.push({icon:"📄",label:s.HANDOVER_PDF_LABEL||"근로장학생 업무 인수인계서",url:s.HANDOVER_PDF_URL,desc:"업무 시작 전 참고자료"});
+    if(s.DONATION_LINK_URL) links.push({icon:"📦",label:s.DONATION_LINK_LABEL||"무인기부코너 관리 시트",url:s.DONATION_LINK_URL,desc:"재고·운영 관리 바로가기"});
+    if(!links.length)return "";
+    return `<div class="section-head"><div><h3>업무 바로가기</h3><p>자주 쓰는 문서와 관리 시트.</p></div></div><div class="quick-link-grid">${links.map(x=>`<a class="quick-link-card" href="${esc(x.url)}" target="_blank" rel="noopener"><span class="quick-link-icon">${x.icon}</span><span><strong>${esc(x.label)}</strong><small>${esc(x.desc)}</small></span><b>↗</b></a>`).join("")}</div>`;
+  }
+
   // ---------------- login / nav ----------------
   async function init(){
     $("#login-system-name").textContent=CONFIG.SYSTEM_NAME||"근로장학생 근무관리";$("#login-term").textContent=CONFIG.TERM_NAME||"";$("#sidebar-name").textContent=CONFIG.SYSTEM_NAME||"근로장학생 관리";$("#sidebar-term").textContent=CONFIG.TERM_NAME||"";$("#mode-badge").textContent=CONFIG.DEMO_MODE?"DEMO":"LIVE";$("#today-label").textContent=new Intl.DateTimeFormat("ko-KR",{dateStyle:"full"}).format(new Date());
-    $$('[data-login-tab]').forEach(b=>b.onclick=()=>{$$('[data-login-tab]').forEach(x=>x.classList.toggle('active',x===b));$("#student-login-form").classList.toggle("hidden",b.dataset.loginTab!=="student");$("#admin-login-form").classList.toggle("hidden",b.dataset.loginTab!=="admin");$("#demo-preview-box").classList.toggle("hidden",!CONFIG.DEMO_MODE||b.dataset.loginTab!=="student");});
+    loadPublicSettings();
+    $$('[data-login-tab]').forEach(b=>b.onclick=()=>{$$('[data-login-tab]').forEach(x=>x.classList.toggle('active',x===b));$("#student-login-form").classList.toggle("hidden",b.dataset.loginTab!=="student");$("#admin-login-form").classList.toggle("hidden",b.dataset.loginTab!=="admin");$("#demo-preview-box").classList.toggle("hidden",!CONFIG.DEMO_MODE||b.dataset.loginTab!=="student");$("#login-student-resources").classList.toggle("hidden",b.dataset.loginTab!=="student");});
     $("#student-login-form").onsubmit=studentLogin;$("#admin-login-form").onsubmit=adminLogin;$$('.logout-btn').forEach(b=>b.onclick=logout);$$('.refresh-btn').forEach(b=>b.onclick=()=>state.view&&navigate(state.view,{force:true}));
     $$('[data-demo="admin"]').forEach(b=>b.onclick=()=>$("#admin-pin").value="1234");
     if(CONFIG.DEMO_MODE){$("#demo-preview-box").classList.remove("hidden");const r=await api("getDemoStudents");$("#demo-student-select").innerHTML=r.students.map(x=>`<option value="${esc(x.STUDENT_KEY)}">${esc(x.NAME)}</option>`).join("");if(r.students.some(x=>x.STUDENT_KEY==="K05"))$("#demo-student-select").value="K05";$("#demo-preview-btn").onclick=demoPreview;}
@@ -399,11 +438,121 @@
   function openNoticeModal(){showModal('공지 등록',`<form id="notice-form"><div class="form-grid"><label>날짜<input type="date" name="date" value="${isoDate(new Date())}" required></label><label>제목<input name="title" value="오늘의 안내" required></label><label class="full">내용<textarea name="content" required></textarea></label><label class="full">링크<input type="url" name="link" placeholder="https://..."></label></div><div class="form-actions"><button type="button" class="ghost modal-cancel">취소</button><button class="primary">등록</button></div></form>`);$('.modal-cancel').onclick=closeModal;$('#notice-form').onsubmit=async e=>{e.preventDefault();try{await api('createNotice',{...state.auth,...Object.fromEntries(new FormData(e.target))});closeModal();toast('공지를 등록했어.');navigate('admin-notices',{force:true});}catch(err){toast(err.message);}};}
 
   // ---------------- ADMIN SETTINGS ----------------
-  function renderAdminSettings(){const d=state.adminData,s=dataSettings(d),holidays=d.holidays.filter(x=>x.ACTIVE==="Y").sort((a,b)=>a.DATE.localeCompare(b.DATE));$("#page-content").innerHTML=`<form id="settings-form"><div class="settings-grid"><div class="settings-block"><h3>학기·방학 기간</h3><div class="stack"><label>학기 시작<input type="date" name="SEMESTER_START" value="${esc(s.SEMESTER_START)}"></label><label>수업 종강일<input type="date" name="CLASS_END" value="${esc(s.CLASS_END)}"></label><label>보강가능일<input type="date" name="MAKEUP_DATE" value="${esc(s.MAKEUP_DATE)}"></label><label>학기근로 종료<input type="date" name="SEMESTER_END" value="${esc(s.SEMESTER_END)}"></label><label>방학 시작<input type="date" name="BREAK_START" value="${esc(s.BREAK_START)}"></label><label>방학 종료<input type="date" name="BREAK_END" value="${esc(s.BREAK_END)}"></label></div></div><div class="settings-block"><h3>정상·단축근무</h3><div class="stack"><div class="inline-fields"><label>정상 시작<input type="time" name="NORMAL_START_TIME" value="${esc(s.NORMAL_START_TIME)}"></label><label>정상 종료<input type="time" name="NORMAL_END_TIME" value="${esc(s.NORMAL_END_TIME)}"></label></div><label>단축근무 시작일<input type="date" name="SHORT_START" value="${esc(s.SHORT_START)}"></label><label>단축근무 종료일<input type="date" name="SHORT_END" value="${esc(s.SHORT_END)}"></label><div class="inline-fields"><label>단축 시작<input type="time" name="SHORT_START_TIME" value="${esc(s.SHORT_START_TIME)}"></label><label>단축 종료<input type="time" name="SHORT_END_TIME" value="${esc(s.SHORT_END_TIME)}"></label></div></div></div><div class="settings-block"><h3>근로시간·시급</h3><div class="stack"><label>학기중 주 최대시간<input type="number" name="SEMESTER_WEEK_LIMIT" value="${esc(s.SEMESTER_WEEK_LIMIT)}"></label><label>방학중 주 최대시간<input type="number" name="BREAK_WEEK_LIMIT" value="${esc(s.BREAK_WEEK_LIMIT)}"></label><label>2026 시급<input type="number" name="WAGE_2026" value="${esc(s.WAGE_2026)}"></label><label>2027 시급<input type="number" name="WAGE_2027" value="${esc(s.WAGE_2027)}"></label></div></div></div><div class="form-actions"><button class="primary">운영설정 저장</button></div></form><div class="source-note" style="margin:16px 0">V0.2 기본값: 2026-2학기 수업 9/1~12/21, 12/22 보강가능일, 12/23~2027/2/28 동계방학. 2026 시급 10,320원, 2027 시급 10,700원으로 넣어뒀어.</div><div class="section-head"><div><h3>대한민국 휴일</h3><p>고정근무와 예산 계산에서 자동 제외. 필요하면 관리자 추가·삭제 가능.</p></div><button id="add-holiday" class="primary">휴일 추가</button></div><div class="table-wrap"><table><thead><tr><th>날짜</th><th>휴일</th><th>출처/메모</th><th></th></tr></thead><tbody>${holidays.map(h=>`<tr><td>${fmtDate(h.DATE)}</td><td><strong>${esc(h.NAME)}</strong></td><td>${esc(h.SOURCE||'')}</td><td><button class="danger compact del-holiday" data-id="${esc(h.HOLIDAY_ID)}">삭제</button></td></tr>`).join('')}</tbody></table></div>`;$('#settings-form').onsubmit=async e=>{e.preventDefault();try{await api('saveSettings',{...state.auth,...Object.fromEntries(new FormData(e.target))});toast('운영설정을 저장했어.');navigate('admin-settings');}catch(err){toast(err.message);}};$('#add-holiday').onclick=openHolidayModal;$$('.del-holiday').forEach(b=>b.onclick=()=>confirm('이 휴일을 삭제할까?')&&actAndReload('deleteHoliday',{holidayId:b.dataset.id},'휴일을 삭제했어.','admin-settings'));}
+  function renderAdminSettings(){
+    const d=state.adminData,s=dataSettings(d),holidays=d.holidays.filter(x=>x.ACTIVE==="Y").sort((a,b)=>a.DATE.localeCompare(b.DATE));
+    $("#page-content").innerHTML=`<form id="settings-form">
+      <div class="settings-grid">
+        <div class="settings-block">
+          <h3>학기·방학 기간</h3>
+          <div class="stack">
+            <label>학기 시작<input type="date" name="SEMESTER_START" value="${esc(s.SEMESTER_START)}"></label>
+            <label>수업 종강일<input type="date" name="CLASS_END" value="${esc(s.CLASS_END)}"></label>
+            <label>보강가능일<input type="date" name="MAKEUP_DATE" value="${esc(s.MAKEUP_DATE)}"></label>
+            <label>학기근로 종료<input type="date" name="SEMESTER_END" value="${esc(s.SEMESTER_END)}"></label>
+            <label>방학 시작<input type="date" name="BREAK_START" value="${esc(s.BREAK_START)}"></label>
+            <label>방학 종료<input type="date" name="BREAK_END" value="${esc(s.BREAK_END)}"></label>
+          </div>
+        </div>
+        <div class="settings-block">
+          <h3>정상·단축근무</h3>
+          <div class="stack">
+            <div class="inline-fields">
+              <label>정상 시작<input type="time" name="NORMAL_START_TIME" value="${esc(s.NORMAL_START_TIME)}"></label>
+              <label>정상 종료<input type="time" name="NORMAL_END_TIME" value="${esc(s.NORMAL_END_TIME)}"></label>
+            </div>
+            <label>단축근무 시작일<input type="date" name="SHORT_START" value="${esc(s.SHORT_START)}"></label>
+            <label>단축근무 종료일<input type="date" name="SHORT_END" value="${esc(s.SHORT_END)}"></label>
+            <div class="inline-fields">
+              <label>단축 시작<input type="time" name="SHORT_START_TIME" value="${esc(s.SHORT_START_TIME)}"></label>
+              <label>단축 종료<input type="time" name="SHORT_END_TIME" value="${esc(s.SHORT_END_TIME)}"></label>
+            </div>
+          </div>
+        </div>
+        <div class="settings-block">
+          <h3>근로시간·시급</h3>
+          <div class="stack">
+            <label>학기중 주 최대시간<input type="number" name="SEMESTER_WEEK_LIMIT" value="${esc(s.SEMESTER_WEEK_LIMIT)}"></label>
+            <label>방학중 주 최대시간<input type="number" name="BREAK_WEEK_LIMIT" value="${esc(s.BREAK_WEEK_LIMIT)}"></label>
+            <label>2026 시급<input type="number" name="WAGE_2026" value="${esc(s.WAGE_2026)}"></label>
+            <label>2027 시급<input type="number" name="WAGE_2027" value="${esc(s.WAGE_2027)}"></label>
+          </div>
+        </div>
+        <div class="settings-block full">
+          <h3>학생 화면 문구·업무 바로가기</h3>
+          <p class="setting-help">특별한 날 문구는 날짜 자동화 없이 여기서 직접 바꾸는 방식이야. 빈칸으로 두면 해당 메시지/버튼은 숨겨져.</p>
+          <div class="settings-link-grid">
+            <label class="full">학생 홈 상단 메시지
+              <textarea name="STUDENT_HOME_MESSAGE" placeholder="예: 오늘도 잘 부탁해!">${esc(s.STUDENT_HOME_MESSAGE||"")}</textarea>
+            </label>
+            <label class="full">정규 근무가 없는 날 문구
+              <input name="STUDENT_NO_WORK_MESSAGE" value="${esc(s.STUDENT_NO_WORK_MESSAGE||"오늘은 정규 근무가 없어.")}" placeholder="오늘은 정규 근무가 없어.">
+            </label>
+            <label>인수인계서 버튼명
+              <input name="HANDOVER_PDF_LABEL" value="${esc(s.HANDOVER_PDF_LABEL||"근로장학생 업무 인수인계서 보기")}">
+            </label>
+            <label>인수인계서 PDF 링크
+              <input type="text" name="HANDOVER_PDF_URL" value="${esc(s.HANDOVER_PDF_URL||"")}" placeholder="Google Drive 공유 링크 또는 ./파일명.pdf">
+            </label>
+            <label>업무 바로가기 버튼명
+              <input name="DONATION_LINK_LABEL" value="${esc(s.DONATION_LINK_LABEL||"무인기부코너 관리 시트")}">
+            </label>
+            <label>무인기부코너 시트 링크
+              <input type="url" name="DONATION_LINK_URL" value="${esc(s.DONATION_LINK_URL||"")}" placeholder="https://...">
+            </label>
+          </div>
+        </div>
+      </div>
+      <div class="form-actions"><button class="primary">운영설정 저장</button></div>
+    </form>
+    <div class="source-note" style="margin:16px 0">학생 화면 문구와 링크도 Google Sheet ‘설정’ 탭이 원본이라, 홈페이지가 애매할 때 VALUE를 직접 수정하고 ‘데이터 새로고침’을 눌러도 돼.</div>
+    <div class="section-head"><div><h3>대한민국 휴일</h3><p>고정근무와 예산 계산에서 자동 제외. 필요하면 관리자 추가·삭제 가능.</p></div><button id="add-holiday" class="primary">휴일 추가</button></div>
+    <div class="table-wrap"><table><thead><tr><th>날짜</th><th>휴일</th><th>출처/메모</th><th></th></tr></thead><tbody>${holidays.map(h=>`<tr><td>${fmtDate(h.DATE)}</td><td><strong>${esc(h.NAME)}</strong></td><td>${esc(h.SOURCE||'')}</td><td><button class="danger compact del-holiday" data-id="${esc(h.HOLIDAY_ID)}">삭제</button></td></tr>`).join('')}</tbody></table></div>`;
+    $('#settings-form').onsubmit=async e=>{
+      e.preventDefault();
+      try{
+        await api('saveSettings',{...state.auth,...Object.fromEntries(new FormData(e.target))});
+        toast('운영설정을 저장했어.');
+        state.publicSettings=null;
+        loadPublicSettings();
+        navigate('admin-settings',{force:true});
+      }catch(err){toast(err.message);}
+    };
+    $('#add-holiday').onclick=openHolidayModal;
+    $$('.del-holiday').forEach(b=>b.onclick=()=>confirm('이 휴일을 삭제할까?')&&actAndReload('deleteHoliday',{holidayId:b.dataset.id},'휴일을 삭제했어.','admin-settings'));
+  }
   function openHolidayModal(){showModal('휴일 추가',`<form id="holiday-form"><div class="form-grid"><label>날짜<input type="date" name="date" required></label><label>휴일명<input name="name" required></label><label class="full">출처/메모<input name="source" value="관리자 입력"></label></div><div class="form-actions"><button type="button" class="ghost modal-cancel">취소</button><button class="primary">추가</button></div></form>`);$('.modal-cancel').onclick=closeModal;$('#holiday-form').onsubmit=async e=>{e.preventDefault();try{await api('upsertHoliday',{...state.auth,...Object.fromEntries(new FormData(e.target))});closeModal();toast('휴일을 추가했어.');navigate('admin-settings');}catch(err){toast(err.message);}};}
 
   // ---------------- STUDENT ----------------
-  function renderStudentHome(){const d=state.studentData,s=d.student;ensureStudentPeriodAnchor(d);const today=isoDate(new Date()),todayEvents=currentStudentScheduleEvents(d,s.STUDENT_KEY,today),open=d.absences.filter(a=>a.STATUS==="대타모집"&&a.STUDENT_KEY!==s.STUDENT_KEY);$("#page-content").innerHTML=`<div class="section-head" style="margin-top:0"><div><h3>오늘의 안내</h3></div></div>${noticeList(d,false)}<div class="card hero-card" style="margin-top:18px"><p>${esc(CONFIG.TERM_NAME||'')}</p><h2>안녕, ${esc(s.NAME)} 👋</h2><p>${todayEvents.filter(x=>x.type==='fixed').length?`오늘 내 근무 ${todayEvents.filter(x=>x.type==='fixed').map(x=>x.label).join(', ')}`:'오늘은 정규 근무가 없어.'}</p><div class="hero-actions"><button class="soft" data-go="student-schedule">내 달력 보기</button>${open.length?`<button class="soft" data-go="student-substitute">대타 ${open.length}건 보기</button>`:''}</div></div><div class="section-head"><div><h3>내 근무 달력</h3><p>내 일정만 보여. 출근불가·대타 확정도 달력에서 바로 구분돼.</p></div></div><div class="month-toolbar"><h3>${fmtMonth(ui.studentMonth)}</h3><div class="group"><button class="ghost compact stu-prev">←</button><button class="ghost compact stu-now">이번 달</button><button class="ghost compact stu-next">→</button></div></div>${calendarHTML(d,ui.studentMonth,s.STUDENT_KEY)}<div class="section-head"><div><h3>다음 근무</h3><p>출근이 어렵다면 여기서 바로 신청.</p></div></div>${scheduleListCards(d,s.STUDENT_KEY,21)}`;bindStudentCalendarNav(renderStudentHome);bindAbsenceButtons();$$('[data-go]').forEach(b=>b.onclick=()=>navigate(b.dataset.go));}
+  function renderStudentHome(){
+    const d=state.studentData,s=d.student,settings=dataSettings(d);
+    ensureStudentPeriodAnchor(d);
+    const today=isoDate(new Date()),todayEvents=currentStudentScheduleEvents(d,s.STUDENT_KEY,today),open=d.absences.filter(a=>a.STATUS==="대타모집"&&a.STUDENT_KEY!==s.STUDENT_KEY);
+    const fixed=todayEvents.filter(x=>x.type==="fixed");
+    const noWork=settings.STUDENT_NO_WORK_MESSAGE||"오늘은 정규 근무가 없어.";
+    const special=String(settings.STUDENT_HOME_MESSAGE||"").trim();
+    $("#page-content").innerHTML=`
+      <div class="section-head" style="margin-top:0"><div><h3>오늘의 안내</h3></div></div>
+      ${noticeList(d,false)}
+      <div class="card hero-card" style="margin-top:18px">
+        ${special?`<div class="student-home-message">${esc(special)}</div>`:""}
+        <p>${esc(settings.TERM_NAME||CONFIG.TERM_NAME||"")}</p>
+        <h2>안녕, ${esc(s.NAME)} 👋</h2>
+        <p>${fixed.length?`오늘 내 근무 ${fixed.map(x=>x.label).join(", ")}`:esc(noWork)}</p>
+        <div class="hero-actions">
+          <button class="soft" data-go="student-schedule">내 달력 보기</button>
+          ${open.length?`<button class="soft" data-go="student-substitute">대타 ${open.length}건 보기</button>`:""}
+        </div>
+      </div>
+      ${studentQuickLinks(d)}
+      <div class="section-head"><div><h3>내 근무 달력</h3><p>내 일정만 보여. 출근불가·대타 확정도 달력에서 바로 구분돼.</p></div></div>
+      <div class="month-toolbar"><h3>${fmtMonth(ui.studentMonth)}</h3><div class="group"><button class="ghost compact stu-prev">←</button><button class="ghost compact stu-now">이번 달</button><button class="ghost compact stu-next">→</button></div></div>
+      ${calendarHTML(d,ui.studentMonth,s.STUDENT_KEY)}
+      <div class="section-head"><div><h3>다음 근무</h3><p>출근이 어렵다면 여기서 바로 신청.</p></div></div>
+      ${scheduleListCards(d,s.STUDENT_KEY,21)}`;
+    bindStudentCalendarNav(renderStudentHome);
+    bindAbsenceButtons();
+    $$("[data-go]").forEach(b=>b.onclick=()=>navigate(b.dataset.go));
+  }
   function renderStudentCalendar(){const d=state.studentData,s=d.student;ensureStudentPeriodAnchor(d);$("#page-content").innerHTML=`<div class="month-toolbar"><h3>${fmtMonth(ui.studentMonth)}</h3><div class="group"><button class="ghost compact stu-prev">←</button><button class="ghost compact stu-now">이번 달</button><button class="ghost compact stu-next">→</button></div></div>${calendarHTML(d,ui.studentMonth,s.STUDENT_KEY)}<div class="section-head"><div><h3>다가오는 근무</h3></div></div>${scheduleListCards(d,s.STUDENT_KEY,42)}`;bindStudentCalendarNav(renderStudentCalendar);bindAbsenceButtons();}
   function bindStudentCalendarNav(rerender){$('.stu-prev').onclick=()=>{ui.studentMonth=new Date(ui.studentMonth.getFullYear(),ui.studentMonth.getMonth()-1,1);rerender();};$('.stu-next').onclick=()=>{ui.studentMonth=new Date(ui.studentMonth.getFullYear(),ui.studentMonth.getMonth()+1,1);rerender();};$('.stu-now').onclick=()=>{ui.studentMonth=new Date();rerender();};}
   function bindAbsenceButtons(){$$('.absence-btn').forEach(b=>b.onclick=()=>openAbsenceModal(b.dataset.date,b.dataset.start,b.dataset.end));}
