@@ -293,109 +293,130 @@
     try{localStorage.removeItem(publicFeedCacheKey());}catch(_e){}
   }
 
-  let googleVizReadyPromise=null;
-
-  function ensureGoogleVisualization(){
-    if(googleVizReadyPromise)return googleVizReadyPromise;
-    googleVizReadyPromise=new Promise((resolve,reject)=>{
-      if(!window.google?.charts){
-        reject(new Error("Google Visualization 라이브러리를 불러오지 못했어."));
-        return;
-      }
-      const timer=setTimeout(()=>reject(new Error("Google Visualization 준비 시간이 초과됐어.")),12000);
-      try{
-        google.charts.load("current",{packages:["table"]});
-        google.charts.setOnLoadCallback(()=>{
-          clearTimeout(timer);
-          resolve();
-        });
-      }catch(e){
-        clearTimeout(timer);
-        reject(e);
-      }
-    });
-    return googleVizReadyPromise;
-  }
-
-  function publicCalendarRowsToData(table){
-    const headers={};
-    for(let c=0;c<table.getNumberOfColumns();c++){
-      headers[String(table.getColumnLabel(c)||"").trim().toUpperCase()]=c;
+  function rawGvizResponseToPublicData(resp){
+    if(!resp || resp.status!=="ok" || !resp.table){
+      const msg=(resp?.errors||[])
+        .map(x=>x?.detailed_message||x?.message)
+        .filter(Boolean).join(" / ");
+      throw new Error(msg||"공개 근무표 응답 형식이 올바르지 않아.");
     }
-    const v=(r,key)=>{
-      const c=headers[key];
-      if(c===undefined)return "";
-      const x=table.getValue(r,c);
-      return x===null||x===undefined?"":String(x);
+
+    const cols=resp.table.cols||[];
+    const rows=resp.table.rows||[];
+    const headers={};
+    cols.forEach((c,i)=>{
+      const key=String(c?.label||c?.id||"").trim().toUpperCase();
+      if(key)headers[key]=i;
+    });
+
+    const cell=(row,key)=>{
+      const i=headers[key];
+      if(i===undefined)return "";
+      const c=row?.c?.[i];
+      if(!c)return "";
+      const v=c.v;
+      if(v===null||v===undefined)return "";
+      return String(v);
     };
 
     const d={students:[],schedules:[],holidays:[],events:[],absences:[],settings:{}};
     const studentMap=new Map();
 
-    for(let r=0;r<table.getNumberOfRows();r++){
-      const type=v(r,"TYPE");
+    rows.forEach((row,r)=>{
+      const type=cell(row,"TYPE");
       if(type==="SCHEDULE"){
         const st={
-          STUDENT_KEY:v(r,"STUDENT_KEY"),
-          NAME:v(r,"NAME"),
-          STUDENT_COLOR:v(r,"COLOR"),
+          STUDENT_KEY:cell(row,"STUDENT_KEY"),
+          NAME:cell(row,"NAME"),
+          STUDENT_COLOR:cell(row,"COLOR"),
           ACTIVE:"Y"
         };
         if(st.STUDENT_KEY&&!studentMap.has(st.STUDENT_KEY))studentMap.set(st.STUDENT_KEY,st);
+
         d.schedules.push({
-          SCHEDULE_ID:v(r,"ROW_ID")||`PUBLIC_S_${r}`,
+          SCHEDULE_ID:cell(row,"ROW_ID")||`PUBLIC_S_${r}`,
           STUDENT_KEY:st.STUDENT_KEY,
           NAME:st.NAME,
-          PERIOD_TYPE:v(r,"PERIOD_TYPE"),
-          DAY:v(r,"DAY"),
-          START:v(r,"START"),
-          END:v(r,"END"),
+          PERIOD_TYPE:cell(row,"PERIOD_TYPE"),
+          DAY:cell(row,"DAY"),
+          START:cell(row,"START"),
+          END:cell(row,"END"),
           LUNCH_ALLOWED:"N",
           ACTIVE:"Y"
         });
       }else if(type==="HOLIDAY"){
         d.holidays.push({
-          HOLIDAY_ID:v(r,"ROW_ID")||`PUBLIC_H_${r}`,
-          DATE:v(r,"DATE"),
-          NAME:v(r,"TITLE"),
+          HOLIDAY_ID:cell(row,"ROW_ID")||`PUBLIC_H_${r}`,
+          DATE:cell(row,"DATE"),
+          NAME:cell(row,"TITLE"),
           SOURCE:"공개 근무표 피드",
           ACTIVE:"Y"
         });
       }else if(type==="EVENT"){
         d.events.push({
-          EVENT_ID:v(r,"ROW_ID")||`PUBLIC_E_${r}`,
-          DATE:v(r,"DATE"),
-          TITLE:v(r,"TITLE"),
-          MESSAGE:v(r,"MESSAGE"),
-          LEVEL:v(r,"LEVEL")||"주의",
+          EVENT_ID:cell(row,"ROW_ID")||`PUBLIC_E_${r}`,
+          DATE:cell(row,"DATE"),
+          TITLE:cell(row,"TITLE"),
+          MESSAGE:cell(row,"MESSAGE"),
+          LEVEL:cell(row,"LEVEL")||"주의",
           SHOW_PUBLIC:"Y",
           ACTIVE:"Y"
         });
       }else if(type==="SETTING"){
-        const key=v(r,"SETTING_KEY");
-        if(key)d.settings[key]=v(r,"SETTING_VALUE");
+        const key=cell(row,"SETTING_KEY");
+        if(key)d.settings[key]=cell(row,"SETTING_VALUE");
       }
-    }
+    });
+
     d.students=[...studentMap.values()];
+    if(!d.schedules.length)throw new Error("PUBLIC_CALENDAR에서 근무 데이터를 찾지 못했어.");
     return d;
   }
 
-  async function gvizPublicCalendarRequest(sheetId){
-    await ensureGoogleVisualization();
+  function gvizPublicCalendarRequest(sheetId){
     return new Promise((resolve,reject)=>{
-      const url=`https://docs.google.com/spreadsheets/d/${encodeURIComponent(sheetId)}/gviz/tq?sheet=PUBLIC_CALENDAR&headers=1&_=${Date.now()}`;
-      const query=new google.visualization.Query(url,{sendMethod:"scriptInjection"});
-      const timer=setTimeout(()=>reject(new Error("공개 근무표 응답 시간이 초과됐어.")),15000);
-      query.send(response=>{
+      const callback=`__workCalendar_${Date.now()}_${Math.random().toString(36).slice(2)}`;
+      const script=document.createElement("script");
+      let done=false;
+
+      const cleanup=()=>{
+        if(done)return;
+        done=true;
         clearTimeout(timer);
-        if(response.isError()){
-          reject(new Error(`${response.getMessage()||"근무표 조회 실패"} ${response.getDetailedMessage()||""}`.trim()));
-          return;
-        }
+        try{delete window[callback];}catch(_e){window[callback]=undefined;}
+        try{script.remove();}catch(_e){}
+      };
+
+      const fail=(err)=>{
+        cleanup();
+        reject(err instanceof Error?err:new Error(String(err)));
+      };
+
+      const timer=setTimeout(
+        ()=>fail(new Error("Google Sheet 공개 근무표 응답 시간이 초과됐어.")),
+        12000
+      );
+
+      window[callback]=(resp)=>{
         try{
-          resolve(publicCalendarRowsToData(response.getDataTable()));
-        }catch(e){reject(e);}
+          const data=rawGvizResponseToPublicData(resp);
+          cleanup();
+          resolve(data);
+        }catch(e){fail(e);}
+      };
+
+      script.onerror=()=>fail(new Error("Google Sheet 공개 근무표 스크립트를 불러오지 못했어."));
+
+      // Google 공식 문서의 anonymous gviz JSONP 형태 그대로 사용.
+      const base=`https://docs.google.com/spreadsheets/d/${encodeURIComponent(sheetId)}/gviz/tq`;
+      const params=new URLSearchParams({
+        sheet:"PUBLIC_CALENDAR",
+        headers:"1",
+        tqx:`responseHandler:${callback}`,
+        _:String(Date.now())
       });
+      script.src=`${base}?${params.toString()}`;
+      document.head.appendChild(script);
     });
   }
 
@@ -427,7 +448,7 @@
       applyLandingPublicText(state.publicSettings);
       renderLandingCalendar();
     }else if(attempt===1 && root){
-      root.innerHTML='<div class="landing-calendar-loading">근무표 불러오는 중...</div>';
+      root.innerHTML='<div class="landing-calendar-loading">공개 근무표 불러오는 중...</div>';
     }
     try{
       const r=await publicLandingRequest();
