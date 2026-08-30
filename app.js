@@ -268,91 +268,93 @@
     return (d.students||[]).filter(x=>x.ACTIVE==="Y").map(st=>({student:st,...(map[st.STUDENT_KEY]||{maxHours:0,weekStart:"",period:"학기중",limit:num(s.SEMESTER_WEEK_LIMIT)})}));
   }
 
-  let publicBridgeFrame=null;
-  let publicBridgeReadyPromise=null;
-
-  function resetPublicBridge(){
-    publicBridgeReadyPromise=null;
-    if(publicBridgeFrame){
-      try{publicBridgeFrame.remove();}catch(_e){}
-      publicBridgeFrame=null;
-    }
+  function publicFeedCacheKey(){
+    return `work_public_feed_${CONFIG.PUBLIC_FEED_SHEET_ID||"none"}`;
   }
 
-  function ensurePublicBridge(){
-    if(publicBridgeReadyPromise) return publicBridgeReadyPromise;
-    publicBridgeReadyPromise=new Promise((resolve,reject)=>{
-      if(CONFIG.DEMO_MODE){resolve(null);return;}
-      if(!CONFIG.API_URL){reject(new Error("API_URL이 비어 있어."));return;}
+  function readCachedPublicFeed(){
+    try{
+      const raw=localStorage.getItem(publicFeedCacheKey());
+      if(!raw)return null;
+      const x=JSON.parse(raw);
+      if(!x?.data || !x?.savedAt)return null;
+      return x;
+    }catch(_e){return null;}
+  }
 
-      const frame=document.createElement("iframe");
-      publicBridgeFrame=frame;
-      frame.id="work-public-bridge";
-      frame.title="public data bridge";
-      frame.style.cssText="position:absolute;width:1px;height:1px;left:-9999px;top:-9999px;border:0;opacity:0;pointer-events:none";
-      frame.src=`${CONFIG.API_URL}${CONFIG.API_URL.includes("?")?"&":"?"}action=publicBridge&_=${Date.now()}`;
+  function saveCachedPublicFeed(data){
+    try{
+      localStorage.setItem(publicFeedCacheKey(),JSON.stringify({savedAt:Date.now(),data}));
+    }catch(_e){}
+  }
 
-      const timer=setTimeout(()=>{
-        window.removeEventListener("message",onMessage);
-        resetPublicBridge();
-        reject(new Error("공개 근무표 브리지 연결 시간이 초과됐어."));
-      },15000);
+  function gvizPublicFeedRequest(sheetId){
+    return new Promise((resolve,reject)=>{
+      const cb=`__gviz_feed_${Date.now()}_${Math.random().toString(36).slice(2)}`;
+      const script=document.createElement("script");
+      const timer=setTimeout(()=>finish(new Error("공개 근무표 응답 시간이 초과됐어.")),15000);
 
-      function onMessage(ev){
-        if(ev.source!==frame.contentWindow) return;
-        const m=ev.data||{};
-        if(m.type!=="WORK_PUBLIC_BRIDGE_READY") return;
+      function finish(err,data){
         clearTimeout(timer);
-        window.removeEventListener("message",onMessage);
-        resolve(frame);
+        try{delete window[cb];}catch(_e){window[cb]=undefined;}
+        script.remove();
+        err?reject(err):resolve(data);
       }
 
-      window.addEventListener("message",onMessage);
-      frame.onerror=()=>{
-        clearTimeout(timer);
-        window.removeEventListener("message",onMessage);
-        resetPublicBridge();
-        reject(new Error("공개 근무표 브리지를 열지 못했어."));
+      window[cb]=(response)=>{
+        try{
+          if(!response || response.status!=="ok"){
+            const msg=response?.errors?.map(x=>x?.detailed_message||x?.message).filter(Boolean).join(" / ") || "공개 근무표 조회에 실패했어.";
+            finish(new Error(msg));
+            return;
+          }
+          const rows=response?.table?.rows||[];
+          const chunks=rows.map(r=>r?.c?.[0]?.v).filter(v=>typeof v==="string");
+          if(!chunks.length)throw new Error("공개 근무표 피드가 비어 있어.");
+          const data=JSON.parse(chunks.join(""));
+          finish(null,data);
+        }catch(e){finish(e);}
       };
-      document.body.appendChild(frame);
+
+      script.onerror=()=>finish(new Error("Google Sheets 공개 피드 연결에 실패했어."));
+      const tqx=`out:json;responseHandler:${cb}`;
+      const tq="select A where A is not null";
+      const url=new URL(`https://docs.google.com/spreadsheets/d/${encodeURIComponent(sheetId)}/gviz/tq`);
+      url.searchParams.set("sheet","PUBLIC_FEED");
+      url.searchParams.set("headers","1");
+      url.searchParams.set("tq",tq);
+      url.searchParams.set("tqx",tqx);
+      url.searchParams.set("_",String(Date.now()));
+      script.src=url.toString();
+      document.head.appendChild(script);
     });
-    return publicBridgeReadyPromise;
   }
 
   async function publicLandingRequest(){
-    if(CONFIG.DEMO_MODE) return api("getPublicLanding");
-    const frame=await ensurePublicBridge();
-    return new Promise((resolve,reject)=>{
-      const requestId=`landing_${Date.now()}_${Math.random().toString(36).slice(2)}`;
-      const timer=setTimeout(()=>{
-        window.removeEventListener("message",onMessage);
-        reject(new Error("공개 근무표 응답 시간이 초과됐어."));
-      },15000);
-
-      function onMessage(ev){
-        if(!frame || ev.source!==frame.contentWindow) return;
-        const m=ev.data||{};
-        if(m.type!=="WORK_PUBLIC_LANDING_RESPONSE" || m.requestId!==requestId) return;
-        clearTimeout(timer);
-        window.removeEventListener("message",onMessage);
-        if(m.ok===false) reject(new Error(m.error||"공개 근무표를 불러오지 못했어."));
-        else resolve(m.data);
-      }
-
-      window.addEventListener("message",onMessage);
-      frame.contentWindow.postMessage({type:"WORK_PUBLIC_LANDING_REQUEST",requestId},"*");
-    });
+    if(CONFIG.DEMO_MODE)return api("getPublicLanding");
+    const feedId=String(CONFIG.PUBLIC_FEED_SHEET_ID||"").trim();
+    if(feedId){
+      return gvizPublicFeedRequest(feedId);
+    }
+    // 아직 공개 피드를 연결하지 않은 기존 설치는 기존 API를 마지막 fallback으로 시도.
+    return api("getPublicLanding");
   }
 
   async function loadPublicLanding(attempt=1){
     const root=$("#landing-calendar-root");
-    if(attempt===1 && root){
+    const cached=readCachedPublicFeed();
+    if(attempt===1 && cached?.data){
+      state.publicLandingData=cached.data;
+      state.publicSettings=cached.data?.settings||{};
+      renderLandingCalendar();
+    }else if(attempt===1 && root){
       root.innerHTML='<div class="landing-calendar-loading">근무표 불러오는 중...</div>';
     }
     try{
       const r=await publicLandingRequest();
       state.publicLandingData=r;
       state.publicSettings=r?.settings||{};
+      saveCachedPublicFeed(r);
       const s=state.publicSettings;
       if(s.SYSTEM_NAME) $("#login-system-name").textContent=s.SYSTEM_NAME;
       if(s.TERM_NAME) $("#login-term").textContent=s.TERM_NAME;
@@ -369,12 +371,16 @@
       console.warn(`공개 랜딩 데이터 로딩 실패 ${attempt}/4`,e);
       if(attempt<4){
         const delays=[0,700,1600,3200];
-        if(!CONFIG.DEMO_MODE) resetPublicBridge();
         if(root)root.innerHTML=`<div class="landing-calendar-loading">근무표 연결 재시도 중... (${attempt}/3)</div>`;
         setTimeout(()=>loadPublicLanding(attempt+1),delays[attempt]);
         return;
       }
-      if(root)root.innerHTML='<div class="landing-calendar-loading">근무표 연결이 잠시 불안정해.<br><button id="landing-retry" class="ghost compact" type="button" style="margin-top:10px">다시 불러오기</button><br><small style="margin-top:8px">로그인 기능은 그대로 사용할 수 있어.</small></div>';
+      if(root && !cached?.data){
+        const setupHint=!String(CONFIG.PUBLIC_FEED_SHEET_ID||"").trim()
+          ? '<br><small style="margin-top:8px">관리자: Apps Script에서 setupPublicCalendarFeed() 실행 후 config.js에 공개 피드 ID를 넣어줘.</small>'
+          : '<br><small style="margin-top:8px">로그인 기능은 그대로 사용할 수 있어.</small>';
+        root.innerHTML=`<div class="landing-calendar-loading">근무표 연결이 잠시 불안정해.<br><button id="landing-retry" class="ghost compact" type="button" style="margin-top:10px">다시 불러오기</button>${setupHint}</div>`;
+      }
       setTimeout(()=>{
         const b=$("#landing-retry");
         if(b)b.onclick=()=>loadPublicLanding(1);
