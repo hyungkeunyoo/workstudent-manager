@@ -2,7 +2,7 @@
   const CONFIG = window.WORK_CONFIG || {};
   const DAYS = ["월","화","수","목","금"];
   const ALL_DAYS = ["일","월","화","수","목","금","토"];
-  const state = { mode:null, auth:null, student:null, adminData:null, studentData:null, publicSettings:null, view:null };
+  const state = { mode:null, auth:null, student:null, adminData:null, studentData:null, publicSettings:null, publicLandingData:null, view:null };
   const ui = { adminWeekAnchor:new Date(), adminMonth:new Date(), studentMonth:new Date() };
   const STUDENT_COLORS = [
     "#D9EAF7", "#FCE2C4", "#DDF1E0", "#F7DCE8", "#E5E0F7",
@@ -106,7 +106,10 @@
       ["2026-09-24","추석 연휴"],["2026-09-25","추석"],["2026-09-26","추석 연휴"],["2026-10-03","개천절"],["2026-10-05","개천절 대체공휴일"],["2026-10-09","한글날"],["2026-12-25","성탄절"],
       ["2027-01-01","신정"],["2027-02-06","설날 연휴"],["2027-02-07","설날"],["2027-02-08","설날 연휴"],["2027-02-09","설날 대체공휴일"]
     ].map((x,i)=>({HOLIDAY_ID:`H${i+1}`,DATE:x[0],NAME:x[1],ACTIVE:"Y",SOURCE:"대한민국 공휴일"}));
-    const db={settings,students,schedules,holidays,budgets:[{WORK_TYPE:"국가",TOTAL_BUDGET:"6006240",NOTE:"기존 파일 2학기 배정액"},{WORK_TYPE:"교내",TOTAL_BUDGET:"8173440",NOTE:"기존 파일 2학기 배정액"}],absences:[],substitutes:[],extraShifts:[],extraJoins:[],notices:[{NOTICE_ID:"N1",DATE:"2026-09-01",TITLE:"오늘의 안내",CONTENT:"우편물 확인 → 홍보물 정리 → 공용 스프레드시트 업데이트 → 자료실 정리 → 행사 준비물 점검",LINK:"",ACTIVE:"Y",CREATED_AT:new Date().toISOString()}]};
+    const events=[
+      {EVENT_ID:"E_DEMO",DATE:"2026-09-17",TITLE:"[데모] 주요 내빈 방문",MESSAGE:"사무실 정돈 및 복장 유의",LEVEL:"주의",SHOW_PUBLIC:"Y",ACTIVE:"Y",CREATED_AT:new Date().toISOString()}
+    ];
+    const db={settings,students,schedules,holidays,events,budgets:[{WORK_TYPE:"국가",TOTAL_BUDGET:"6006240",NOTE:"기존 파일 2학기 배정액"},{WORK_TYPE:"교내",TOTAL_BUDGET:"8173440",NOTE:"기존 파일 2학기 배정액"}],absences:[],substitutes:[],extraShifts:[],extraJoins:[],notices:[{NOTICE_ID:"N1",DATE:"2026-09-01",TITLE:"오늘의 안내",CONTENT:"우편물 확인 → 홍보물 정리 → 공용 스프레드시트 업데이트 → 자료실 정리 → 행사 준비물 점검",LINK:"",ACTIVE:"Y",CREATED_AT:new Date().toISOString()}]};
     // 상태가 눈에 보이도록 1건만 데모 예외 생성. 실제 원본 데이터가 아니라 데모 표시용.
     db.absences.push({ABSENCE_ID:"A_DEMO",CREATED_AT:new Date().toISOString(),STUDENT_KEY:"K05",STUDENT_ID:"",NAME:"박지선",DATE:"2026-09-04",START:"09:00",END:"12:00",REASON:"개인 일정",NOTE:"V0.2 기능 확인용 데모 데이터",STATUS:"대타모집",SUBSTITUTE_KEY:"",SUBSTITUTE_ID:"",SUBSTITUTE_NAME:""});
     localStorage.setItem(key,JSON.stringify(db));
@@ -120,9 +123,17 @@
     if(!s) throw new Error("학번 또는 로그인 PIN을 확인해줘. (데모는 이름 미리보기를 사용하면 돼.)");return s;
   }
   function mockAdmin(db,p){if(String(p.pin)!==String(db.settings.ADMIN_PIN))throw new Error("관리자 PIN이 맞지 않아.");}
-  function mockDashboard(db){return {students:db.students,schedules:db.schedules,holidays:db.holidays,budgets:db.budgets,settings:db.settings,absences:db.absences,substitutes:db.substitutes,extraShifts:db.extraShifts,extraJoins:db.extraJoins,notices:db.notices};}
+  function mockDashboard(db){return {students:db.students,schedules:db.schedules,holidays:db.holidays,events:db.events||[],budgets:db.budgets,settings:db.settings,absences:db.absences,substitutes:db.substitutes,extraShifts:db.extraShifts,extraJoins:db.extraJoins,notices:db.notices};}
   async function mockApi(action,p){
     await new Promise(r=>setTimeout(r,60));const db=readMock();
+    if(action==="getPublicLanding"){return {ok:true,
+      students:db.students.filter(x=>x.ACTIVE==="Y").map(x=>({STUDENT_KEY:x.STUDENT_KEY,NAME:x.NAME,STUDENT_COLOR:x.STUDENT_COLOR})),
+      schedules:db.schedules.filter(x=>x.ACTIVE==="Y"),
+      holidays:db.holidays.filter(x=>x.ACTIVE==="Y"),
+      events:(db.events||[]).filter(x=>x.ACTIVE==="Y"&&x.SHOW_PUBLIC==="Y"),
+      absences:db.absences.filter(x=>!["취소","삭제"].includes(x.STATUS)).map(x=>({STUDENT_KEY:x.STUDENT_KEY,DATE:x.DATE,START:x.START,END:x.END,STATUS:x.STATUS,SUBSTITUTE_KEY:x.SUBSTITUTE_KEY,SUBSTITUTE_NAME:x.SUBSTITUTE_NAME})),
+      settings:db.settings
+    };}
     if(action==="getPublicSettings"){return {ok:true,settings:{
       SYSTEM_NAME:db.settings.SYSTEM_NAME,TERM_NAME:db.settings.TERM_NAME,
       HANDOVER_PDF_LABEL:db.settings.HANDOVER_PDF_LABEL,HANDOVER_PDF_URL:db.settings.HANDOVER_PDF_URL
@@ -130,7 +141,7 @@
     if(action==="getDemoStudents") return {ok:true,students:db.students.filter(x=>x.ACTIVE==="Y").map(x=>({STUDENT_KEY:x.STUDENT_KEY,NAME:x.NAME}))};
     if(action==="studentLogin"){const s=mockAuthStudent(db,p);return {ok:true,student:s};}
     if(action==="adminLogin"){mockAdmin(db,p);return {ok:true};}
-    if(action==="getStudentDashboard"){const s=mockAuthStudent(db,p);return {ok:true,student:s,schedules:db.schedules.filter(x=>x.STUDENT_KEY===s.STUDENT_KEY&&x.ACTIVE==="Y"),holidays:db.holidays,settings:db.settings,absences:db.absences,substitutes:db.substitutes,extraShifts:db.extraShifts,extraJoins:db.extraJoins,notices:db.notices};}
+    if(action==="getStudentDashboard"){const s=mockAuthStudent(db,p);return {ok:true,student:s,schedules:db.schedules.filter(x=>x.STUDENT_KEY===s.STUDENT_KEY&&x.ACTIVE==="Y"),holidays:db.holidays,events:db.events||[],settings:db.settings,absences:db.absences,substitutes:db.substitutes,extraShifts:db.extraShifts,extraJoins:db.extraJoins,notices:db.notices};}
     if(action==="getAdminDashboard"){mockAdmin(db,p);return {ok:true,...mockDashboard(db)};}
     if(action==="createAbsence"){
       const s=mockAuthStudent(db,p);db.absences.push({ABSENCE_ID:uid("A"),CREATED_AT:new Date().toISOString(),STUDENT_KEY:s.STUDENT_KEY,STUDENT_ID:s.STUDENT_ID,NAME:s.NAME,DATE:p.date,START:p.start,END:p.end,REASON:p.reason||"개인 일정",NOTE:p.note||"",STATUS:"대타모집",SUBSTITUTE_KEY:"",SUBSTITUTE_ID:"",SUBSTITUTE_NAME:""});writeMock(db);return {ok:true};
@@ -161,6 +172,16 @@
     if(action==="deleteExtraJoin"){mockAdmin(db,p);const j=db.extraJoins.find(x=>x.JOIN_ID===p.joinId);if(j)j.STATUS="삭제";writeMock(db);return {ok:true};}
     if(action==="createNotice"){mockAdmin(db,p);db.notices.push({NOTICE_ID:uid("N"),DATE:p.date,TITLE:p.title,CONTENT:p.content,LINK:p.link||"",ACTIVE:"Y",CREATED_AT:new Date().toISOString()});writeMock(db);return {ok:true};}
     if(action==="deleteNotice"){mockAdmin(db,p);const n=db.notices.find(x=>x.NOTICE_ID===p.noticeId);if(n)n.ACTIVE="N";writeMock(db);return {ok:true};}
+    if(action==="upsertEvent"){
+      mockAdmin(db,p);
+      let e=p.eventId?(db.events||[]).find(x=>x.EVENT_ID===p.eventId):null;
+      const v={EVENT_ID:e?.EVENT_ID||uid("E"),DATE:p.date,TITLE:p.title,MESSAGE:p.message||"",LEVEL:p.level||"주의",SHOW_PUBLIC:p.showPublic||"Y",ACTIVE:"Y",CREATED_AT:e?.CREATED_AT||new Date().toISOString()};
+      if(e)Object.assign(e,v);else{db.events=db.events||[];db.events.push(v);}
+      writeMock(db);return {ok:true};
+    }
+    if(action==="deleteEvent"){
+      mockAdmin(db,p);const e=(db.events||[]).find(x=>x.EVENT_ID===p.eventId);if(e)e.ACTIVE="N";writeMock(db);return {ok:true};
+    }
     if(action==="saveSettings"){mockAdmin(db,p);Object.keys(db.settings).forEach(()=>{});Object.entries(p).forEach(([k,v])=>{if(k!=="pin"&&k!=="action")db.settings[k]=v;});writeMock(db);return {ok:true};}
     if(action==="saveBudget"){mockAdmin(db,p);["국가","교내"].forEach(type=>{let b=db.budgets.find(x=>x.WORK_TYPE===type);if(!b){b={WORK_TYPE:type,TOTAL_BUDGET:"0",NOTE:""};db.budgets.push(b);}b.TOTAL_BUDGET=String(p[type==="국가"?"national":"internal"]??"0");});writeMock(db);return {ok:true};}
     if(action==="upsertHoliday"){mockAdmin(db,p);let h=p.holidayId?db.holidays.find(x=>x.HOLIDAY_ID===p.holidayId):null;const v={HOLIDAY_ID:h?.HOLIDAY_ID||uid("H"),DATE:p.date,NAME:p.name,ACTIVE:"Y",SOURCE:p.source||"관리자 입력"};if(h)Object.assign(h,v);else db.holidays.push(v);writeMock(db);return {ok:true};}
@@ -171,6 +192,14 @@
   // ---------------- settings / date model ----------------
   function dataSettings(d){return d.settings||{};}
   function holidayFor(d,date){return (d.holidays||[]).find(h=>h.ACTIVE==="Y"&&h.DATE===date);}
+  function opsEventsFor(d,date,publicMode=false){
+    return (d.events||[]).filter(e=>e.ACTIVE==="Y"&&e.DATE===date&&(!publicMode||e.SHOW_PUBLIC==="Y"));
+  }
+  function eventToneClass(level){
+    if(level==="중요")return "important";
+    if(level==="안내")return "info";
+    return "";
+  }
   function isWeekend(date){const x=parseDate(date);return !x||x.getDay()===0||x.getDay()===6;}
   function periodType(d,date){const s=dataSettings(d);if(date>=s.SEMESTER_START&&date<=s.SEMESTER_END)return "학기중";if(date>=s.BREAK_START&&date<=s.BREAK_END)return "방학중";return "";}
   function workHours(d,date){const s=dataSettings(d),short=s.SHORT_START&&s.SHORT_END&&date>=s.SHORT_START&&date<=s.SHORT_END;return short?{mode:"단축근무",start:s.SHORT_START_TIME||"10:00",end:s.SHORT_END_TIME||"17:00"}:{mode:"정상근무",start:s.NORMAL_START_TIME||"09:00",end:s.NORMAL_END_TIME||"17:00"};}
@@ -239,11 +268,12 @@
     return (d.students||[]).filter(x=>x.ACTIVE==="Y").map(st=>({student:st,...(map[st.STUDENT_KEY]||{maxHours:0,weekStart:"",period:"학기중",limit:num(s.SEMESTER_WEEK_LIMIT)})}));
   }
 
-  async function loadPublicSettings(){
+  async function loadPublicLanding(){
     try{
-      const r=await api("getPublicSettings");
-      const s=r?.settings||{};
-      state.publicSettings=s;
+      const r=await api("getPublicLanding");
+      state.publicLandingData=r;
+      state.publicSettings=r?.settings||{};
+      const s=state.publicSettings;
       if(s.SYSTEM_NAME) $("#login-system-name").textContent=s.SYSTEM_NAME;
       if(s.TERM_NAME) $("#login-term").textContent=s.TERM_NAME;
       const link=$("#login-handover-link");
@@ -254,10 +284,24 @@
       }else if(link){
         link.classList.add("hidden");
       }
+      renderLandingCalendar();
     }catch(e){
-      // 로그인 화면 자체는 즉시 보여주고, 공개 링크 로딩 실패는 로그인 기능을 막지 않는다.
-      console.warn("공개 설정 로딩 실패",e);
+      console.warn("공개 랜딩 데이터 로딩 실패",e);
+      const root=$("#landing-calendar-root");
+      if(root)root.innerHTML='<div class="landing-calendar-loading">근무표를 불러오지 못했어. 로그인 기능은 정상적으로 사용할 수 있어.</div>';
     }
+  }
+  function renderLandingCalendar(){
+    const d=state.publicLandingData;
+    if(!d)return;
+    $("#landing-calendar-month").textContent=fmtMonth(ui.landingMonth);
+    $("#landing-calendar-root").innerHTML=calendarHTML(d,ui.landingMonth,null,{publicMode:true});
+  }
+  function bindLandingCalendar(){
+    const prev=$("#landing-prev"),now=$("#landing-now"),next=$("#landing-next");
+    if(prev)prev.onclick=()=>{ui.landingMonth=new Date(ui.landingMonth.getFullYear(),ui.landingMonth.getMonth()-1,1);renderLandingCalendar();};
+    if(now)now.onclick=()=>{ui.landingMonth=firstOfMonth(new Date());renderLandingCalendar();};
+    if(next)next.onclick=()=>{ui.landingMonth=new Date(ui.landingMonth.getFullYear(),ui.landingMonth.getMonth()+1,1);renderLandingCalendar();};
   }
   function studentQuickLinks(d){
     const s=dataSettings(d), links=[];
@@ -270,7 +314,8 @@
   // ---------------- login / nav ----------------
   async function init(){
     $("#login-system-name").textContent=CONFIG.SYSTEM_NAME||"근로장학생 근무관리";$("#login-term").textContent=CONFIG.TERM_NAME||"";$("#sidebar-name").textContent=CONFIG.SYSTEM_NAME||"근로장학생 관리";$("#sidebar-term").textContent=CONFIG.TERM_NAME||"";$("#mode-badge").textContent=CONFIG.DEMO_MODE?"DEMO":"LIVE";$("#today-label").textContent=new Intl.DateTimeFormat("ko-KR",{dateStyle:"full"}).format(new Date());
-    loadPublicSettings();
+    bindLandingCalendar();
+    loadPublicLanding();
     $$('[data-login-tab]').forEach(b=>b.onclick=()=>{$$('[data-login-tab]').forEach(x=>x.classList.toggle('active',x===b));$("#student-login-form").classList.toggle("hidden",b.dataset.loginTab!=="student");$("#admin-login-form").classList.toggle("hidden",b.dataset.loginTab!=="admin");$("#demo-preview-box").classList.toggle("hidden",!CONFIG.DEMO_MODE||b.dataset.loginTab!=="student");$("#login-student-resources").classList.toggle("hidden",b.dataset.loginTab!=="student");});
     $("#student-login-form").onsubmit=studentLogin;$("#admin-login-form").onsubmit=adminLogin;$$('.logout-btn').forEach(b=>b.onclick=logout);$$('.refresh-btn').forEach(b=>b.onclick=()=>state.view&&navigate(state.view,{force:true}));
     $$('[data-demo="admin"]').forEach(b=>b.onclick=()=>$("#admin-pin").value="1234");
@@ -362,10 +407,11 @@
   function calendarEventHTML_(d,e){
     const fixed=e.type==="fixed";
     const style=fixed?` style="${studentChipStyle(studentColor(d,e.studentKey))}"`:"";
-    const cls=fixed?"fixed":e.type==="absence"?"absent":e.type==="sub"?"sub":e.type==="extra"?"extra":"";
-    return `<div class="cal-event ${cls}"${style}><span class="cal-event-time">${esc(e.label)}</span><span class="cal-event-name">${esc(e.title)}</span></div>`;
+    const cls=fixed?"fixed":e.type==="absence"?"absent":e.type==="sub"?"sub":e.type==="extra"?"extra":e.type==="ops"?`ops ${eventToneClass(e.level)}`:"";
+    const title=e.message?` title="${esc(e.message)}"`:"";
+    return `<div class="cal-event ${cls}"${style}${title}><span class="cal-event-time">${esc(e.label)}</span><span class="cal-event-name">${esc(e.title)}</span></div>`;
   }
-  function calendarHTML(d,month,studentKey=null){
+  function calendarHTML(d,month,studentKey=null,opts={}){
     const y=month.getFullYear(),m=month.getMonth(),first=new Date(y,m,1),start=addDays(first,-first.getDay()),today=isoDate(new Date());let cells="";
     for(let i=0;i<42;i++){
       const x=addDays(start,i),date=isoDate(x),outside=x.getMonth()!==m,h=holidayFor(d,date);let events=[];
@@ -379,26 +425,33 @@
           else if(a.STATUS==="대타확정")events.push({type:"sub",label:`${a.START}~${a.END}`,title:`${a.SUBSTITUTE_NAME}↺`,studentKey:a.SUBSTITUTE_KEY});
           else events.push({type:"absence",label:`${a.START}~${a.END}`,title:`공석(${s.NAME})`});
         });
-        (d.extraShifts||[]).filter(sh=>sh.STATUS!=="삭제"&&sh.DATE===date).forEach(sh=>{
-          const joined=(d.extraJoins||[]).filter(j=>j.SHIFT_ID===sh.SHIFT_ID&&j.STATUS==="신청").length;
-          events.push({type:"extra",label:`${sh.START}~${sh.END}`,title:`${sh.TITLE} ${joined}/${sh.CAPACITY}`});
-        });
+        if(!opts.publicMode){
+          (d.extraShifts||[]).filter(sh=>sh.STATUS!=="삭제"&&sh.DATE===date).forEach(sh=>{
+            const joined=(d.extraJoins||[]).filter(j=>j.SHIFT_ID===sh.SHIFT_ID&&j.STATUS==="신청").length;
+            events.push({type:"extra",label:`${sh.START}~${sh.END}`,title:`${sh.TITLE} ${joined}/${sh.CAPACITY}`});
+          });
+        }
       }
 
-      const shown=events.slice(0,6);
+      opsEventsFor(d,date,!!opts.publicMode).forEach(ev=>{
+        events.unshift({type:"ops",label:ev.LEVEL||"업무안내",title:ev.TITLE,message:ev.MESSAGE||"",level:ev.LEVEL||"주의"});
+      });
+
+      const shown=events.slice(0,7);
       const groups=groupCalendarEvents_(shown);
       const eventHTML=groups.map(g=>{
         if(g.length===1)return `<div class="cal-event-row">${calendarEventHTML_(d,g[0].e)}</div>`;
         return `<div class="cal-event-row overlap">${g.map(x=>calendarEventHTML_(d,x.e)).join("")}</div>`;
       }).join("");
 
-      cells+=`<div class="cal-day ${outside?"outside":""} ${h?"holiday":""} ${date===today?"today":""}">
+      const past=date<today;
+      cells+=`<div class="cal-day ${outside?"outside":""} ${h?"holiday":""} ${date===today?"today":""} ${past?"past":""}">
         <div class="cal-date"><span>${x.getDate()}</span>${h?`<span class="holiday-name">${esc(h.NAME)}</span>`:""}</div>
         ${eventHTML}
-        ${events.length>6?`<div class="cal-event muted">+${events.length-6}건</div>`:""}
+        ${events.length>7?`<div class="cal-event muted">+${events.length-7}건</div>`:""}
       </div>`;
     }
-    return `<div class="calendar"><div class="calendar-head">${ALL_DAYS.map(x=>`<div>${x}</div>`).join("")}</div><div class="calendar-grid">${cells}</div></div><div class="legend"><span>빨강: 출근불가/공석</span><span>파랑: 대타</span><span>주황: 추가근무</span><span>연빨강 배경: 공휴일</span></div>`;
+    return `<div class="calendar"><div class="calendar-head">${ALL_DAYS.map(x=>`<div>${x}</div>`).join("")}</div><div class="calendar-grid">${cells}</div></div><div class="legend"><span>학생별 색상: 정규근무</span><span>빨강: 출근불가/공석</span><span>파랑: 대타</span><span>주황: 업무이벤트/추가근무</span><span>연빨강 배경: 공휴일</span><span>취소선: 지나간 일정</span></div>`;
   }
   function weekBoard(d,anchor){
     const mon=mondayOf(anchor),dates=DAYS.map((day,i)=>({day,date:isoDate(addDays(mon,i)),label:`${addDays(mon,i).getMonth()+1}/${addDays(mon,i).getDate()}`}));const slots=[];for(let h=9;h<17;h++){slots.push(`${String(h).padStart(2,"0")}:00`);slots.push(`${String(h).padStart(2,"0")}:30`);}let html=`<div class="week-board"><div class="week-grid"><div class="week-cell head">시간</div>${dates.map(dy=>`<div class="week-cell head">${dy.day}<br><small>${dy.label}${holidayFor(d,dy.date)?` · ${esc(holidayFor(d,dy.date).NAME)}`:""}</small></div>`).join("")}`;
@@ -439,7 +492,7 @@
 
   // ---------------- ADMIN SETTINGS ----------------
   function renderAdminSettings(){
-    const d=state.adminData,s=dataSettings(d),holidays=d.holidays.filter(x=>x.ACTIVE==="Y").sort((a,b)=>a.DATE.localeCompare(b.DATE));
+    const d=state.adminData,s=dataSettings(d),holidays=d.holidays.filter(x=>x.ACTIVE==="Y").sort((a,b)=>a.DATE.localeCompare(b.DATE)),events=(d.events||[]).filter(x=>x.ACTIVE==="Y").sort((a,b)=>a.DATE.localeCompare(b.DATE));
     $("#page-content").innerHTML=`<form id="settings-form">
       <div class="settings-grid">
         <div class="settings-block">
@@ -505,6 +558,8 @@
       <div class="form-actions"><button class="primary">운영설정 저장</button></div>
     </form>
     <div class="source-note" style="margin:16px 0">학생 화면 문구와 링크도 Google Sheet ‘설정’ 탭이 원본이라, 홈페이지가 애매할 때 VALUE를 직접 수정하고 ‘데이터 새로고침’을 눌러도 돼.</div>
+    <div class="section-head"><div><h3>특정일 업무 이벤트</h3><p>“주요 내빈 방문 · 복장/사무실 정돈 유의”처럼 근로생이 알아야 할 일정을 달력에 표시해.</p></div><button id="add-event" class="primary">이벤트 추가</button></div>
+    <div class="table-wrap"><table><thead><tr><th>날짜</th><th>제목</th><th>메시지</th><th>등급</th><th>로그인 전 공개</th><th></th></tr></thead><tbody>${events.map(ev=>`<tr><td>${fmtDate(ev.DATE)}</td><td><strong>${esc(ev.TITLE)}</strong></td><td>${esc(ev.MESSAGE||"")}</td><td><span class="event-level ${esc(ev.LEVEL||"주의")}">${esc(ev.LEVEL||"주의")}</span></td><td>${ev.SHOW_PUBLIC==="Y"?"표시":"로그인 후만"}</td><td><button class="danger compact del-event" data-id="${esc(ev.EVENT_ID)}">삭제</button></td></tr>`).join("")||'<tr><td colspan="6" class="empty">등록된 업무 이벤트가 없어.</td></tr>'}</tbody></table></div>
     <div class="section-head"><div><h3>대한민국 휴일</h3><p>고정근무와 예산 계산에서 자동 제외. 필요하면 관리자 추가·삭제 가능.</p></div><button id="add-holiday" class="primary">휴일 추가</button></div>
     <div class="table-wrap"><table><thead><tr><th>날짜</th><th>휴일</th><th>출처/메모</th><th></th></tr></thead><tbody>${holidays.map(h=>`<tr><td>${fmtDate(h.DATE)}</td><td><strong>${esc(h.NAME)}</strong></td><td>${esc(h.SOURCE||'')}</td><td><button class="danger compact del-holiday" data-id="${esc(h.HOLIDAY_ID)}">삭제</button></td></tr>`).join('')}</tbody></table></div>`;
     $('#settings-form').onsubmit=async e=>{
@@ -513,12 +568,34 @@
         await api('saveSettings',{...state.auth,...Object.fromEntries(new FormData(e.target))});
         toast('운영설정을 저장했어.');
         state.publicSettings=null;
-        loadPublicSettings();
+        loadPublicLanding();
         navigate('admin-settings',{force:true});
       }catch(err){toast(err.message);}
     };
+    $('#add-event').onclick=openEventModal;
+    $$('.del-event').forEach(b=>b.onclick=()=>confirm('이 업무 이벤트를 삭제할까?')&&actAndReload('deleteEvent',{eventId:b.dataset.id},'업무 이벤트를 삭제했어.','admin-settings'));
     $('#add-holiday').onclick=openHolidayModal;
     $$('.del-holiday').forEach(b=>b.onclick=()=>confirm('이 휴일을 삭제할까?')&&actAndReload('deleteHoliday',{holidayId:b.dataset.id},'휴일을 삭제했어.','admin-settings'));
+  }
+  function openEventModal(){
+    showModal('특정일 업무 이벤트 추가',`<form id="event-form"><div class="form-grid">
+      <label>날짜<input type="date" name="date" required></label>
+      <label>등급<select name="level"><option>안내</option><option selected>주의</option><option>중요</option></select></label>
+      <label class="full">제목<input name="title" placeholder="예: 주요 내빈 방문 예정" required></label>
+      <label class="full">근로생 안내 문구<textarea name="message" placeholder="예: 복장 및 사무실 정돈에 특히 유의해주세요."></textarea></label>
+      <label class="full">로그인 전 월 근무표에도 표시<select name="showPublic"><option value="Y">표시</option><option value="N">로그인 후에만 표시</option></select></label>
+    </div><div class="form-actions"><button type="button" class="ghost modal-cancel">취소</button><button class="primary">추가</button></div></form>`);
+    $('.modal-cancel').onclick=closeModal;
+    $('#event-form').onsubmit=async e=>{
+      e.preventDefault();
+      try{
+        await api('upsertEvent',{...state.auth,...Object.fromEntries(new FormData(e.target))});
+        closeModal();toast('업무 이벤트를 추가했어.');
+        state.publicLandingData=null;
+        loadPublicLanding();
+        navigate('admin-settings',{force:true});
+      }catch(err){toast(err.message);}
+    };
   }
   function openHolidayModal(){showModal('휴일 추가',`<form id="holiday-form"><div class="form-grid"><label>날짜<input type="date" name="date" required></label><label>휴일명<input name="name" required></label><label class="full">출처/메모<input name="source" value="관리자 입력"></label></div><div class="form-actions"><button type="button" class="ghost modal-cancel">취소</button><button class="primary">추가</button></div></form>`);$('.modal-cancel').onclick=closeModal;$('#holiday-form').onsubmit=async e=>{e.preventDefault();try{await api('upsertHoliday',{...state.auth,...Object.fromEntries(new FormData(e.target))});closeModal();toast('휴일을 추가했어.');navigate('admin-settings');}catch(err){toast(err.message);}};}
 
@@ -528,9 +605,11 @@
     ensureStudentPeriodAnchor(d);
     const today=isoDate(new Date()),todayEvents=currentStudentScheduleEvents(d,s.STUDENT_KEY,today),open=d.absences.filter(a=>a.STATUS==="대타모집"&&a.STUDENT_KEY!==s.STUDENT_KEY);
     const fixed=todayEvents.filter(x=>x.type==="fixed");
+    const todayOps=opsEventsFor(d,today,false);
     const noWork=settings.STUDENT_NO_WORK_MESSAGE||"오늘은 정규 근무가 없어.";
     const special=String(settings.STUDENT_HOME_MESSAGE||"").trim();
     $("#page-content").innerHTML=`
+      ${todayOps.map(ev=>`<div class="ops-today-banner ${eventToneClass(ev.LEVEL)}"><strong>${esc(ev.TITLE)}</strong><p>${esc(ev.MESSAGE||"")}</p></div>`).join("")}
       <div class="section-head" style="margin-top:0"><div><h3>오늘의 안내</h3></div></div>
       ${noticeList(d,false)}
       <div class="card hero-card" style="margin-top:18px">
