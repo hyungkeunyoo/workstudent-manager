@@ -1,6 +1,6 @@
 (() => {
   const CONFIG = window.WORK_CONFIG || {};
-  const APP_VERSION = CONFIG.APP_VERSION || "V0.2.7";
+  const APP_VERSION = CONFIG.APP_VERSION || "V0.2.7.1";
   const DAYS = ["월","화","수","목","금"];
   const ALL_DAYS = ["일","월","화","수","목","금","토"];
   const state = { mode:null, auth:null, student:null, adminData:null, studentData:null, publicHome:null, view:null };

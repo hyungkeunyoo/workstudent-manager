@@ -743,3 +743,26 @@ tr:last-child td{border-bottom:0}
   }
   .public-notice-grid{grid-template-columns:1fr}
 }
+
+
+/* =========================================================
+   V0.2.7.1 HOTFIX — 로그인 패널 위치 복구
+   V0.2.6.x의 named grid-area 잔재를 완전히 제거
+   ========================================================= */
+#login-screen.login-shell > .login-visual,
+#login-screen.login-shell > .login-panel{
+  grid-area:auto !important;
+  grid-column:auto !important;
+  grid-row:auto !important;
+}
+#login-screen.login-shell > .login-visual{
+  min-width:0 !important;
+}
+#login-screen.login-shell > .login-panel{
+  min-width:0 !important;
+}
+@media(min-width:761px){
+  #login-screen.login-shell{
+    grid-template-columns:minmax(0,1.15fr) minmax(390px,.85fr) !important;
+  }
+}
