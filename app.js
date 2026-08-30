@@ -289,6 +289,9 @@
       localStorage.setItem(publicFeedCacheKey(),JSON.stringify({savedAt:Date.now(),data}));
     }catch(_e){}
   }
+  function clearCachedPublicFeed(){
+    try{localStorage.removeItem(publicFeedCacheKey());}catch(_e){}
+  }
 
   let googleVizReadyPromise=null;
 
@@ -381,7 +384,7 @@
     await ensureGoogleVisualization();
     return new Promise((resolve,reject)=>{
       const url=`https://docs.google.com/spreadsheets/d/${encodeURIComponent(sheetId)}/gviz/tq?sheet=PUBLIC_CALENDAR&headers=1&_=${Date.now()}`;
-      const query=new google.visualization.Query(url);
+      const query=new google.visualization.Query(url,{sendMethod:"scriptInjection"});
       const timer=setTimeout(()=>reject(new Error("공개 근무표 응답 시간이 초과됐어.")),15000);
       query.send(response=>{
         clearTimeout(timer);
@@ -396,10 +399,13 @@
     });
   }
 
+  function normalizeLandingText(v){
+    return String(v??"").replace(/\\n/g,"\n");
+  }
   function applyLandingPublicText(s={}){
     const title=$("#landing-title"),desc=$("#landing-description");
-    if(title && s.LANDING_TITLE)title.textContent=s.LANDING_TITLE;
-    if(desc && s.LANDING_DESCRIPTION)desc.textContent=s.LANDING_DESCRIPTION;
+    if(title && s.LANDING_TITLE)title.textContent=normalizeLandingText(s.LANDING_TITLE);
+    if(desc && s.LANDING_DESCRIPTION)desc.textContent=normalizeLandingText(s.LANDING_DESCRIPTION);
   }
 
   async function publicLandingRequest(){
@@ -453,7 +459,7 @@
         const setupHint=!String(CONFIG.PUBLIC_FEED_SHEET_ID||"").trim()
           ? '<br><small style="margin-top:8px">관리자: Apps Script에서 setupPublicCalendarFeed() 실행 후 config.js에 공개 피드 ID를 넣어줘.</small>'
           : '<br><small style="margin-top:8px">로그인 기능은 그대로 사용할 수 있어.</small>';
-        root.innerHTML=`<div class="landing-calendar-loading">근무표 연결이 잠시 불안정해.<br><button id="landing-retry" class="ghost compact" type="button" style="margin-top:10px">다시 불러오기</button>${setupHint}</div>`;
+        root.innerHTML=`<div class="landing-calendar-loading">근무표 연결이 잠시 불안정해.<br><button id="landing-retry" class="ghost compact" type="button" style="margin-top:10px">다시 불러오기</button>${setupHint}<br><small style="margin-top:8px;max-width:80%;word-break:break-word">${esc(e.message||String(e))}</small></div>`;
       }
       setTimeout(()=>{
         const b=$("#landing-retry");
@@ -750,6 +756,7 @@
         await api('saveSettings',{...state.auth,...Object.fromEntries(new FormData(e.target))});
         toast('운영설정을 저장했어.');
         state.publicSettings=null;
+        clearCachedPublicFeed();
         loadPublicLanding();
         navigate('admin-settings',{force:true});
       }catch(err){toast(err.message);}
