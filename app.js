@@ -452,9 +452,16 @@
     (d.extraShifts||[]).filter(sh=>sh.STATUS==="모집중"&&sh.DATE===date).forEach(sh=>{if((d.extraJoins||[]).some(j=>j.SHIFT_ID===sh.SHIFT_ID&&j.STUDENT_KEY===key&&j.STATUS==="신청"))out.push({type:"extra",label:`${sh.START}~${sh.END}`,title:`추가 · ${sh.TITLE}`,sh});});return out;
   }
   function eventInterval_(e){
-    const m=String(e?.label||"").match(/^(\d{2}:\d{2})~(\d{2}:\d{2})$/);
-    return m?{start:m[1],end:m[2]}:null;
-  }
+    const m=String(e?.label||"").match(/^(\d{1,2}:\d{2})~(\d{1,2}:\d{2})$/);
+    if(!m) return null;
+
+    const normalize = t => t.padStart(5,"0");
+
+    return {
+        start: normalize(m[1]),
+        end: normalize(m[2])
+    };
+}
   function groupCalendarEvents_(events){
     const timed=events.map((e,i)=>({e,i,iv:eventInterval_(e)}));
     const result=[], withTime=timed.filter(x=>x.iv).sort((a,b)=>a.iv.start.localeCompare(b.iv.start)||a.iv.end.localeCompare(b.iv.end));
