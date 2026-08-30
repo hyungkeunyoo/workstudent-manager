@@ -100,7 +100,9 @@
       HANDOVER_PDF_LABEL:"근로장학생 업무 인수인계서 보기",
       HANDOVER_PDF_URL:"./근로장학생_업무_인수인계서_샘플.pdf",
       DONATION_LINK_LABEL:"무인기부코너 관리 시트",
-      DONATION_LINK_URL:"https://www.naver.com/"
+      DONATION_LINK_URL:"https://www.naver.com/",
+      LANDING_TITLE:"한양대학교 ERICA 발전협력팀\n근로장학생 관리 시트",
+      LANDING_DESCRIPTION:"Google Sheet는 기록 원본으로 남기고, 학생과 직원은 웹에서 필요한 일만 처리하는 근로장학생 관리도구."
     };
     const holidays=[
       ["2026-09-24","추석 연휴"],["2026-09-25","추석"],["2026-09-26","추석 연휴"],["2026-10-03","개천절"],["2026-10-05","개천절 대체공휴일"],["2026-10-09","한글날"],["2026-12-25","성탄절"],
@@ -288,53 +290,123 @@
     }catch(_e){}
   }
 
-  function gvizPublicFeedRequest(sheetId){
-    return new Promise((resolve,reject)=>{
-      const cb=`__gviz_feed_${Date.now()}_${Math.random().toString(36).slice(2)}`;
-      const script=document.createElement("script");
-      const timer=setTimeout(()=>finish(new Error("공개 근무표 응답 시간이 초과됐어.")),15000);
+  let googleVizReadyPromise=null;
 
-      function finish(err,data){
-        clearTimeout(timer);
-        try{delete window[cb];}catch(_e){window[cb]=undefined;}
-        script.remove();
-        err?reject(err):resolve(data);
+  function ensureGoogleVisualization(){
+    if(googleVizReadyPromise)return googleVizReadyPromise;
+    googleVizReadyPromise=new Promise((resolve,reject)=>{
+      if(!window.google?.charts){
+        reject(new Error("Google Visualization 라이브러리를 불러오지 못했어."));
+        return;
       }
-
-      window[cb]=(response)=>{
-        try{
-          if(!response || response.status!=="ok"){
-            const msg=response?.errors?.map(x=>x?.detailed_message||x?.message).filter(Boolean).join(" / ") || "공개 근무표 조회에 실패했어.";
-            finish(new Error(msg));
-            return;
-          }
-          const rows=response?.table?.rows||[];
-          const chunks=rows.map(r=>r?.c?.[0]?.v).filter(v=>typeof v==="string");
-          if(!chunks.length)throw new Error("공개 근무표 피드가 비어 있어.");
-          const data=JSON.parse(chunks.join(""));
-          finish(null,data);
-        }catch(e){finish(e);}
-      };
-
-      script.onerror=()=>finish(new Error("Google Sheets 공개 피드 연결에 실패했어."));
-      const tqx=`out:json;responseHandler:${cb}`;
-      const tq="select A where A is not null";
-      const url=new URL(`https://docs.google.com/spreadsheets/d/${encodeURIComponent(sheetId)}/gviz/tq`);
-      url.searchParams.set("sheet","PUBLIC_FEED");
-      url.searchParams.set("headers","1");
-      url.searchParams.set("tq",tq);
-      url.searchParams.set("tqx",tqx);
-      url.searchParams.set("_",String(Date.now()));
-      script.src=url.toString();
-      document.head.appendChild(script);
+      const timer=setTimeout(()=>reject(new Error("Google Visualization 준비 시간이 초과됐어.")),12000);
+      try{
+        google.charts.load("current",{packages:["table"]});
+        google.charts.setOnLoadCallback(()=>{
+          clearTimeout(timer);
+          resolve();
+        });
+      }catch(e){
+        clearTimeout(timer);
+        reject(e);
+      }
     });
+    return googleVizReadyPromise;
+  }
+
+  function publicCalendarRowsToData(table){
+    const headers={};
+    for(let c=0;c<table.getNumberOfColumns();c++){
+      headers[String(table.getColumnLabel(c)||"").trim().toUpperCase()]=c;
+    }
+    const v=(r,key)=>{
+      const c=headers[key];
+      if(c===undefined)return "";
+      const x=table.getValue(r,c);
+      return x===null||x===undefined?"":String(x);
+    };
+
+    const d={students:[],schedules:[],holidays:[],events:[],absences:[],settings:{}};
+    const studentMap=new Map();
+
+    for(let r=0;r<table.getNumberOfRows();r++){
+      const type=v(r,"TYPE");
+      if(type==="SCHEDULE"){
+        const st={
+          STUDENT_KEY:v(r,"STUDENT_KEY"),
+          NAME:v(r,"NAME"),
+          STUDENT_COLOR:v(r,"COLOR"),
+          ACTIVE:"Y"
+        };
+        if(st.STUDENT_KEY&&!studentMap.has(st.STUDENT_KEY))studentMap.set(st.STUDENT_KEY,st);
+        d.schedules.push({
+          SCHEDULE_ID:v(r,"ROW_ID")||`PUBLIC_S_${r}`,
+          STUDENT_KEY:st.STUDENT_KEY,
+          NAME:st.NAME,
+          PERIOD_TYPE:v(r,"PERIOD_TYPE"),
+          DAY:v(r,"DAY"),
+          START:v(r,"START"),
+          END:v(r,"END"),
+          LUNCH_ALLOWED:"N",
+          ACTIVE:"Y"
+        });
+      }else if(type==="HOLIDAY"){
+        d.holidays.push({
+          HOLIDAY_ID:v(r,"ROW_ID")||`PUBLIC_H_${r}`,
+          DATE:v(r,"DATE"),
+          NAME:v(r,"TITLE"),
+          SOURCE:"공개 근무표 피드",
+          ACTIVE:"Y"
+        });
+      }else if(type==="EVENT"){
+        d.events.push({
+          EVENT_ID:v(r,"ROW_ID")||`PUBLIC_E_${r}`,
+          DATE:v(r,"DATE"),
+          TITLE:v(r,"TITLE"),
+          MESSAGE:v(r,"MESSAGE"),
+          LEVEL:v(r,"LEVEL")||"주의",
+          SHOW_PUBLIC:"Y",
+          ACTIVE:"Y"
+        });
+      }else if(type==="SETTING"){
+        const key=v(r,"SETTING_KEY");
+        if(key)d.settings[key]=v(r,"SETTING_VALUE");
+      }
+    }
+    d.students=[...studentMap.values()];
+    return d;
+  }
+
+  async function gvizPublicCalendarRequest(sheetId){
+    await ensureGoogleVisualization();
+    return new Promise((resolve,reject)=>{
+      const url=`https://docs.google.com/spreadsheets/d/${encodeURIComponent(sheetId)}/gviz/tq?sheet=PUBLIC_CALENDAR&headers=1&_=${Date.now()}`;
+      const query=new google.visualization.Query(url);
+      const timer=setTimeout(()=>reject(new Error("공개 근무표 응답 시간이 초과됐어.")),15000);
+      query.send(response=>{
+        clearTimeout(timer);
+        if(response.isError()){
+          reject(new Error(`${response.getMessage()||"근무표 조회 실패"} ${response.getDetailedMessage()||""}`.trim()));
+          return;
+        }
+        try{
+          resolve(publicCalendarRowsToData(response.getDataTable()));
+        }catch(e){reject(e);}
+      });
+    });
+  }
+
+  function applyLandingPublicText(s={}){
+    const title=$("#landing-title"),desc=$("#landing-description");
+    if(title && s.LANDING_TITLE)title.textContent=s.LANDING_TITLE;
+    if(desc && s.LANDING_DESCRIPTION)desc.textContent=s.LANDING_DESCRIPTION;
   }
 
   async function publicLandingRequest(){
     if(CONFIG.DEMO_MODE)return api("getPublicLanding");
     const feedId=String(CONFIG.PUBLIC_FEED_SHEET_ID||"").trim();
     if(feedId){
-      return gvizPublicFeedRequest(feedId);
+      return gvizPublicCalendarRequest(feedId);
     }
     // 아직 공개 피드를 연결하지 않은 기존 설치는 기존 API를 마지막 fallback으로 시도.
     return api("getPublicLanding");
@@ -346,6 +418,7 @@
     if(attempt===1 && cached?.data){
       state.publicLandingData=cached.data;
       state.publicSettings=cached.data?.settings||{};
+      applyLandingPublicText(state.publicSettings);
       renderLandingCalendar();
     }else if(attempt===1 && root){
       root.innerHTML='<div class="landing-calendar-loading">근무표 불러오는 중...</div>';
@@ -356,6 +429,7 @@
       state.publicSettings=r?.settings||{};
       saveCachedPublicFeed(r);
       const s=state.publicSettings;
+      applyLandingPublicText(s);
       if(s.SYSTEM_NAME) $("#login-system-name").textContent=s.SYSTEM_NAME;
       if(s.TERM_NAME) $("#login-term").textContent=s.TERM_NAME;
       const link=$("#login-handover-link");
@@ -627,6 +701,18 @@
           </div>
         </div>
         <div class="settings-block full">
+          <h3>로그인 첫 화면 문구</h3>
+          <p class="setting-help">녹색 영역의 제목과 설명문을 여기서 바로 바꿀 수 있어. 줄바꿈도 그대로 반영돼.</p>
+          <div class="settings-link-grid">
+            <label class="full">첫 화면 제목
+              <textarea name="LANDING_TITLE" placeholder="한양대학교 ERICA 발전협력팀&#10;근로장학생 관리 시트">${esc(s.LANDING_TITLE||"한양대학교 ERICA 발전협력팀\n근로장학생 관리 시트")}</textarea>
+            </label>
+            <label class="full">첫 화면 설명문
+              <textarea name="LANDING_DESCRIPTION" placeholder="첫 화면에 보여줄 간단한 설명">${esc(s.LANDING_DESCRIPTION||"Google Sheet는 기록 원본으로 남기고, 학생과 직원은 웹에서 필요한 일만 처리하는 근로장학생 관리도구.")}</textarea>
+            </label>
+          </div>
+        </div>
+        <div class="settings-block full">
           <h3>학생 화면 문구·업무 바로가기</h3>
           <p class="setting-help">특별한 날 문구는 날짜 자동화 없이 여기서 직접 바꾸는 방식이야. 빈칸으로 두면 해당 메시지/버튼은 숨겨져.</p>
           <div class="settings-link-grid">
@@ -653,7 +739,7 @@
       </div>
       <div class="form-actions"><button class="primary">운영설정 저장</button></div>
     </form>
-    <div class="source-note" style="margin:16px 0">학생 화면 문구와 링크도 Google Sheet ‘설정’ 탭이 원본이라, 홈페이지가 애매할 때 VALUE를 직접 수정하고 ‘데이터 새로고침’을 눌러도 돼.</div>
+    <div class="source-note" style="margin:16px 0">학생/로그인 화면 문구와 링크도 Google Sheet ‘설정’ 탭이 원본이라, 홈페이지가 애매할 때 VALUE를 직접 수정하고 ‘데이터 새로고침’을 눌러도 돼.</div>
     <div class="section-head"><div><h3>특정일 업무 이벤트</h3><p>“주요 내빈 방문 · 복장/사무실 정돈 유의”처럼 근로생이 알아야 할 일정을 달력에 표시해.</p></div><button id="add-event" class="primary">이벤트 추가</button></div>
     <div class="table-wrap"><table><thead><tr><th>날짜</th><th>제목</th><th>메시지</th><th>등급</th><th>로그인 전 공개</th><th></th></tr></thead><tbody>${events.map(ev=>`<tr><td>${fmtDate(ev.DATE)}</td><td><strong>${esc(ev.TITLE)}</strong></td><td>${esc(ev.MESSAGE||"")}</td><td><span class="event-level ${esc(ev.LEVEL||"주의")}">${esc(ev.LEVEL||"주의")}</span></td><td>${ev.SHOW_PUBLIC==="Y"?"표시":"로그인 후만"}</td><td><button class="danger compact del-event" data-id="${esc(ev.EVENT_ID)}">삭제</button></td></tr>`).join("")||'<tr><td colspan="6" class="empty">등록된 업무 이벤트가 없어.</td></tr>'}</tbody></table></div>
     <div class="section-head"><div><h3>대한민국 휴일</h3><p>고정근무와 예산 계산에서 자동 제외. 필요하면 관리자 추가·삭제 가능.</p></div><button id="add-holiday" class="primary">휴일 추가</button></div>

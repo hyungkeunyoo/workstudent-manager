@@ -541,3 +541,6 @@ tr:last-child td{border-bottom:0}
 .event-level.안내{background:var(--blue-soft);color:var(--blue)}
 .event-level.주의{background:var(--amber-soft);color:var(--amber)}
 .event-level.중요{background:var(--red-soft);color:var(--red)}
+
+/* V0.2.6.4 */
+#landing-title{white-space:pre-line}
