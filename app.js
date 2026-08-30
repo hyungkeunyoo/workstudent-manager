@@ -1,8 +1,9 @@
 (() => {
   const CONFIG = window.WORK_CONFIG || {};
+  const APP_VERSION = CONFIG.APP_VERSION || "V0.2.7";
   const DAYS = ["월","화","수","목","금"];
   const ALL_DAYS = ["일","월","화","수","목","금","토"];
-  const state = { mode:null, auth:null, student:null, adminData:null, studentData:null, publicSettings:null, publicLandingData:null, view:null };
+  const state = { mode:null, auth:null, student:null, adminData:null, studentData:null, publicHome:null, view:null };
   const ui = { adminWeekAnchor:new Date(), adminMonth:new Date(), studentMonth:new Date() };
   const STUDENT_COLORS = [
     "#D9EAF7", "#FCE2C4", "#DDF1E0", "#F7DCE8", "#E5E0F7",
@@ -111,7 +112,10 @@
     const events=[
       {EVENT_ID:"E_DEMO",DATE:"2026-09-17",TITLE:"[데모] 주요 내빈 방문",MESSAGE:"사무실 정돈 및 복장 유의",LEVEL:"주의",SHOW_PUBLIC:"Y",ACTIVE:"Y",CREATED_AT:new Date().toISOString()}
     ];
-    const db={settings,students,schedules,holidays,events,budgets:[{WORK_TYPE:"국가",TOTAL_BUDGET:"6006240",NOTE:"기존 파일 2학기 배정액"},{WORK_TYPE:"교내",TOTAL_BUDGET:"8173440",NOTE:"기존 파일 2학기 배정액"}],absences:[],substitutes:[],extraShifts:[],extraJoins:[],notices:[{NOTICE_ID:"N1",DATE:"2026-09-01",TITLE:"오늘의 안내",CONTENT:"우편물 확인 → 홍보물 정리 → 공용 스프레드시트 업데이트 → 자료실 정리 → 행사 준비물 점검",LINK:"",ACTIVE:"Y",CREATED_AT:new Date().toISOString()}]};
+    const publicNotices=[
+      {PUBLIC_NOTICE_ID:"PN_DEMO1",DATE:"2026-09-01",TITLE:"2학기 근로 시작 안내",CONTENT:"첫 근무 전 본인 시간표와 업무 인수인계서를 확인해줘.",LINK:"",ACTIVE:"Y",CREATED_AT:new Date().toISOString()}
+    ];
+    const db={settings,students,schedules,holidays,events,publicNotices,budgets:[{WORK_TYPE:"국가",TOTAL_BUDGET:"6006240",NOTE:"기존 파일 2학기 배정액"},{WORK_TYPE:"교내",TOTAL_BUDGET:"8173440",NOTE:"기존 파일 2학기 배정액"}],absences:[],substitutes:[],extraShifts:[],extraJoins:[],notices:[{NOTICE_ID:"N1",DATE:"2026-09-01",TITLE:"오늘의 안내",CONTENT:"우편물 확인 → 홍보물 정리 → 공용 스프레드시트 업데이트 → 자료실 정리 → 행사 준비물 점검",LINK:"",ACTIVE:"Y",CREATED_AT:new Date().toISOString()}]};
     // 상태가 눈에 보이도록 1건만 데모 예외 생성. 실제 원본 데이터가 아니라 데모 표시용.
     db.absences.push({ABSENCE_ID:"A_DEMO",CREATED_AT:new Date().toISOString(),STUDENT_KEY:"K05",STUDENT_ID:"",NAME:"박지선",DATE:"2026-09-04",START:"09:00",END:"12:00",REASON:"개인 일정",NOTE:"V0.2 기능 확인용 데모 데이터",STATUS:"대타모집",SUBSTITUTE_KEY:"",SUBSTITUTE_ID:"",SUBSTITUTE_NAME:""});
     localStorage.setItem(key,JSON.stringify(db));
@@ -125,9 +129,14 @@
     if(!s) throw new Error("학번 또는 로그인 PIN을 확인해줘. (데모는 이름 미리보기를 사용하면 돼.)");return s;
   }
   function mockAdmin(db,p){if(String(p.pin)!==String(db.settings.ADMIN_PIN))throw new Error("관리자 PIN이 맞지 않아.");}
-  function mockDashboard(db){return {students:db.students,schedules:db.schedules,holidays:db.holidays,events:db.events||[],budgets:db.budgets,settings:db.settings,absences:db.absences,substitutes:db.substitutes,extraShifts:db.extraShifts,extraJoins:db.extraJoins,notices:db.notices};}
+  function mockDashboard(db){return {students:db.students,schedules:db.schedules,holidays:db.holidays,events:db.events||[],publicNotices:db.publicNotices||[],budgets:db.budgets,settings:db.settings,absences:db.absences,substitutes:db.substitutes,extraShifts:db.extraShifts,extraJoins:db.extraJoins,notices:db.notices,backendVersion:"V0.2.7"};}
   async function mockApi(action,p){
     await new Promise(r=>setTimeout(r,60));const db=readMock();
+    if(action==="getPublicHome"){return {ok:true,version:"V0.2.7",settings:{
+      SYSTEM_NAME:db.settings.SYSTEM_NAME,TERM_NAME:db.settings.TERM_NAME,
+      LANDING_TITLE:db.settings.LANDING_TITLE,LANDING_DESCRIPTION:db.settings.LANDING_DESCRIPTION,
+      HANDOVER_PDF_LABEL:db.settings.HANDOVER_PDF_LABEL,HANDOVER_PDF_URL:db.settings.HANDOVER_PDF_URL
+    },notices:(db.publicNotices||[]).filter(x=>x.ACTIVE==="Y")};}
     if(action==="getPublicLanding"){return {ok:true,
       students:db.students.filter(x=>x.ACTIVE==="Y").map(x=>({STUDENT_KEY:x.STUDENT_KEY,NAME:x.NAME,STUDENT_COLOR:x.STUDENT_COLOR})),
       schedules:db.schedules.filter(x=>x.ACTIVE==="Y"),
@@ -172,6 +181,18 @@
     if(action==="deleteExtraShift"){mockAdmin(db,p);const s=db.extraShifts.find(x=>x.SHIFT_ID===p.shiftId);if(s)s.STATUS="삭제";db.extraJoins.filter(x=>x.SHIFT_ID===p.shiftId).forEach(x=>x.STATUS="삭제");writeMock(db);return {ok:true};}
     if(action==="applyExtraShift"){const s=mockAuthStudent(db,p),sh=db.extraShifts.find(x=>x.SHIFT_ID===p.shiftId&&x.STATUS==="모집중");if(!sh)throw new Error("현재 모집 중이 아니야.");const joins=db.extraJoins.filter(x=>x.SHIFT_ID===sh.SHIFT_ID&&x.STATUS==="신청");if(joins.some(x=>x.STUDENT_KEY===s.STUDENT_KEY))throw new Error("이미 신청했어.");if(joins.length>=num(sh.CAPACITY))throw new Error("모집 인원이 찼어.");db.extraJoins.push({JOIN_ID:uid("J"),SHIFT_ID:sh.SHIFT_ID,STUDENT_KEY:s.STUDENT_KEY,STUDENT_ID:s.STUDENT_ID,NAME:s.NAME,APPLIED_AT:new Date().toISOString(),STATUS:"신청"});writeMock(db);return {ok:true};}
     if(action==="deleteExtraJoin"){mockAdmin(db,p);const j=db.extraJoins.find(x=>x.JOIN_ID===p.joinId);if(j)j.STATUS="삭제";writeMock(db);return {ok:true};}
+    if(action==="createPublicNotice"){
+      mockAdmin(db,p);
+      db.publicNotices=db.publicNotices||[];
+      db.publicNotices.push({PUBLIC_NOTICE_ID:uid("PN"),DATE:p.date||isoDate(new Date()),TITLE:p.title||"안내",CONTENT:p.content||"",LINK:p.link||"",ACTIVE:"Y",CREATED_AT:new Date().toISOString()});
+      writeMock(db);return {ok:true};
+    }
+    if(action==="deletePublicNotice"){
+      mockAdmin(db,p);
+      const n=(db.publicNotices||[]).find(x=>x.PUBLIC_NOTICE_ID===p.publicNoticeId);
+      if(n)n.ACTIVE="N";
+      writeMock(db);return {ok:true};
+    }
     if(action==="createNotice"){mockAdmin(db,p);db.notices.push({NOTICE_ID:uid("N"),DATE:p.date,TITLE:p.title,CONTENT:p.content,LINK:p.link||"",ACTIVE:"Y",CREATED_AT:new Date().toISOString()});writeMock(db);return {ok:true};}
     if(action==="deleteNotice"){mockAdmin(db,p);const n=db.notices.find(x=>x.NOTICE_ID===p.noticeId);if(n)n.ACTIVE="N";writeMock(db);return {ok:true};}
     if(action==="upsertEvent"){
@@ -270,236 +291,83 @@
     return (d.students||[]).filter(x=>x.ACTIVE==="Y").map(st=>({student:st,...(map[st.STUDENT_KEY]||{maxHours:0,weekStart:"",period:"학기중",limit:num(s.SEMESTER_WEEK_LIMIT)})}));
   }
 
-  function publicFeedCacheKey(){
-    return `work_public_feed_${CONFIG.PUBLIC_FEED_SHEET_ID||"none"}`;
-  }
-
-  function readCachedPublicFeed(){
-    try{
-      const raw=localStorage.getItem(publicFeedCacheKey());
-      if(!raw)return null;
-      const x=JSON.parse(raw);
-      if(!x?.data || !x?.savedAt)return null;
-      return x;
-    }catch(_e){return null;}
-  }
-
-  function saveCachedPublicFeed(data){
-    try{
-      localStorage.setItem(publicFeedCacheKey(),JSON.stringify({savedAt:Date.now(),data}));
-    }catch(_e){}
-  }
-  function clearCachedPublicFeed(){
-    try{localStorage.removeItem(publicFeedCacheKey());}catch(_e){}
-  }
-
-  function rawGvizResponseToPublicData(resp){
-    if(!resp || resp.status!=="ok" || !resp.table){
-      const msg=(resp?.errors||[])
-        .map(x=>x?.detailed_message||x?.message)
-        .filter(Boolean).join(" / ");
-      throw new Error(msg||"공개 근무표 응답 형식이 올바르지 않아.");
-    }
-
-    const cols=resp.table.cols||[];
-    const rows=resp.table.rows||[];
-    const headers={};
-    cols.forEach((c,i)=>{
-      const key=String(c?.label||c?.id||"").trim().toUpperCase();
-      if(key)headers[key]=i;
-    });
-
-    const cell=(row,key)=>{
-      const i=headers[key];
-      if(i===undefined)return "";
-      const c=row?.c?.[i];
-      if(!c)return "";
-      const v=c.v;
-      if(v===null||v===undefined)return "";
-      return String(v);
-    };
-
-    const d={students:[],schedules:[],holidays:[],events:[],absences:[],settings:{}};
-    const studentMap=new Map();
-
-    rows.forEach((row,r)=>{
-      const type=cell(row,"TYPE");
-      if(type==="SCHEDULE"){
-        const st={
-          STUDENT_KEY:cell(row,"STUDENT_KEY"),
-          NAME:cell(row,"NAME"),
-          STUDENT_COLOR:cell(row,"COLOR"),
-          ACTIVE:"Y"
-        };
-        if(st.STUDENT_KEY&&!studentMap.has(st.STUDENT_KEY))studentMap.set(st.STUDENT_KEY,st);
-
-        d.schedules.push({
-          SCHEDULE_ID:cell(row,"ROW_ID")||`PUBLIC_S_${r}`,
-          STUDENT_KEY:st.STUDENT_KEY,
-          NAME:st.NAME,
-          PERIOD_TYPE:cell(row,"PERIOD_TYPE"),
-          DAY:cell(row,"DAY"),
-          START:cell(row,"START"),
-          END:cell(row,"END"),
-          LUNCH_ALLOWED:"N",
-          ACTIVE:"Y"
-        });
-      }else if(type==="HOLIDAY"){
-        d.holidays.push({
-          HOLIDAY_ID:cell(row,"ROW_ID")||`PUBLIC_H_${r}`,
-          DATE:cell(row,"DATE"),
-          NAME:cell(row,"TITLE"),
-          SOURCE:"공개 근무표 피드",
-          ACTIVE:"Y"
-        });
-      }else if(type==="EVENT"){
-        d.events.push({
-          EVENT_ID:cell(row,"ROW_ID")||`PUBLIC_E_${r}`,
-          DATE:cell(row,"DATE"),
-          TITLE:cell(row,"TITLE"),
-          MESSAGE:cell(row,"MESSAGE"),
-          LEVEL:cell(row,"LEVEL")||"주의",
-          SHOW_PUBLIC:"Y",
-          ACTIVE:"Y"
-        });
-      }else if(type==="SETTING"){
-        const key=cell(row,"SETTING_KEY");
-        if(key)d.settings[key]=cell(row,"SETTING_VALUE");
-      }
-    });
-
-    d.students=[...studentMap.values()];
-    if(!d.schedules.length)throw new Error("PUBLIC_CALENDAR에서 근무 데이터를 찾지 못했어.");
-    return d;
-  }
-
-  function gvizPublicCalendarRequest(sheetId){
-    return new Promise((resolve,reject)=>{
-      const callback=`__workCalendar_${Date.now()}_${Math.random().toString(36).slice(2)}`;
-      const script=document.createElement("script");
-      let done=false;
-
-      const cleanup=()=>{
-        if(done)return;
-        done=true;
-        clearTimeout(timer);
-        try{delete window[callback];}catch(_e){window[callback]=undefined;}
-        try{script.remove();}catch(_e){}
-      };
-
-      const fail=(err)=>{
-        cleanup();
-        reject(err instanceof Error?err:new Error(String(err)));
-      };
-
-      const timer=setTimeout(
-        ()=>fail(new Error("Google Sheet 공개 근무표 응답 시간이 초과됐어.")),
-        12000
-      );
-
-      window[callback]=(resp)=>{
-        try{
-          const data=rawGvizResponseToPublicData(resp);
-          cleanup();
-          resolve(data);
-        }catch(e){fail(e);}
-      };
-
-      script.onerror=()=>fail(new Error("Google Sheet 공개 근무표 스크립트를 불러오지 못했어."));
-
-      // Google 공식 문서의 anonymous gviz JSONP 형태 그대로 사용.
-      const base=`https://docs.google.com/spreadsheets/d/${encodeURIComponent(sheetId)}/gviz/tq`;
-      const params=new URLSearchParams({
-        sheet:"PUBLIC_CALENDAR",
-        headers:"1",
-        tqx:`responseHandler:${callback}`,
-        _:String(Date.now())
-      });
-      script.src=`${base}?${params.toString()}`;
-      document.head.appendChild(script);
-    });
-  }
-
   function normalizeLandingText(v){
     return String(v??"").replace(/\\n/g,"\n");
   }
-  function applyLandingPublicText(s={}){
+  function applyLandingText(s={}){
     const title=$("#landing-title"),desc=$("#landing-description");
     if(title && s.LANDING_TITLE)title.textContent=normalizeLandingText(s.LANDING_TITLE);
     if(desc && s.LANDING_DESCRIPTION)desc.textContent=normalizeLandingText(s.LANDING_DESCRIPTION);
-  }
+    if(s.SYSTEM_NAME)$("#login-system-name").textContent=s.SYSTEM_NAME;
+    if(s.TERM_NAME)$("#login-term").textContent=s.TERM_NAME;
 
-  async function publicLandingRequest(){
-    if(CONFIG.DEMO_MODE)return api("getPublicLanding");
-    const feedId=String(CONFIG.PUBLIC_FEED_SHEET_ID||"").trim();
-    if(feedId){
-      return gvizPublicCalendarRequest(feedId);
+    const link=$("#login-handover-link");
+    if(link && s.HANDOVER_PDF_URL){
+      link.href=s.HANDOVER_PDF_URL;
+      $("#login-handover-label").textContent=s.HANDOVER_PDF_LABEL||"근로장학생 업무 인수인계서 보기";
+      link.classList.remove("hidden");
+    }else if(link){
+      link.classList.add("hidden");
     }
-    // 아직 공개 피드를 연결하지 않은 기존 설치는 기존 API를 마지막 fallback으로 시도.
-    return api("getPublicLanding");
   }
 
-  async function loadPublicLanding(attempt=1){
-    const root=$("#landing-calendar-root");
-    const cached=readCachedPublicFeed();
-    if(attempt===1 && cached?.data){
-      state.publicLandingData=cached.data;
-      state.publicSettings=cached.data?.settings||{};
-      applyLandingPublicText(state.publicSettings);
-      renderLandingCalendar();
-    }else if(attempt===1 && root){
-      root.innerHTML='<div class="landing-calendar-loading">공개 근무표 불러오는 중...</div>';
+  function publicHomeCacheKey(){return "work_public_home_v027";}
+  function readPublicHomeCache(){
+    try{
+      const x=JSON.parse(localStorage.getItem(publicHomeCacheKey())||"null");
+      if(!x?.data||!x.savedAt)return null;
+      return x;
+    }catch(_e){return null;}
+  }
+  function writePublicHomeCache(data){
+    try{localStorage.setItem(publicHomeCacheKey(),JSON.stringify({savedAt:Date.now(),data}));}catch(_e){}
+  }
+  function clearPublicHomeCache(){
+    try{localStorage.removeItem(publicHomeCacheKey());}catch(_e){}
+  }
+
+  function renderLandingPublicNotices(notices=[]){
+    const box=$("#landing-public-notices");
+    if(!box)return;
+    const active=(notices||[])
+      .filter(x=>x.ACTIVE!=="N")
+      .sort((a,b)=>String(a.DATE||"").localeCompare(String(b.DATE||"")))
+      .slice(0,3);
+
+    if(!active.length){
+      box.classList.add("hidden");
+      box.innerHTML="";
+      return;
+    }
+
+    box.classList.remove("hidden");
+    box.innerHTML=`<div class="landing-public-notices-head">NOTICE · 근로 안내</div>
+      ${active.map(n=>`<div class="landing-public-notice">
+        <span class="date">${esc(fmtDate(n.DATE))}</span>
+        <div><strong>${esc(n.TITLE||"안내")}</strong><p>${esc(n.CONTENT||"")}</p></div>
+        ${n.LINK?`<a href="${esc(n.LINK)}" target="_blank" rel="noopener">열기 ↗</a>`:""}
+      </div>`).join("")}`;
+  }
+
+  async function loadPublicHome(force=false,attempt=1){
+    const cached=!force?readPublicHomeCache():null;
+    if(cached?.data){
+      state.publicHome=cached.data;
+      applyLandingText(cached.data.settings||{});
+      renderLandingPublicNotices(cached.data.notices||[]);
     }
     try{
-      const r=await publicLandingRequest();
-      state.publicLandingData=r;
-      state.publicSettings=r?.settings||{};
-      saveCachedPublicFeed(r);
-      const s=state.publicSettings;
-      applyLandingPublicText(s);
-      if(s.SYSTEM_NAME) $("#login-system-name").textContent=s.SYSTEM_NAME;
-      if(s.TERM_NAME) $("#login-term").textContent=s.TERM_NAME;
-      const link=$("#login-handover-link");
-      if(link && s.HANDOVER_PDF_URL){
-        link.href=s.HANDOVER_PDF_URL;
-        $("#login-handover-label").textContent=s.HANDOVER_PDF_LABEL||"근로장학생 업무 인수인계서 보기";
-        link.classList.remove("hidden");
-      }else if(link){
-        link.classList.add("hidden");
-      }
-      renderLandingCalendar();
+      const r=await api("getPublicHome");
+      state.publicHome=r;
+      writePublicHomeCache(r);
+      applyLandingText(r.settings||{});
+      renderLandingPublicNotices(r.notices||[]);
     }catch(e){
-      console.warn(`공개 랜딩 데이터 로딩 실패 ${attempt}/4`,e);
-      if(attempt<4){
-        const delays=[0,700,1600,3200];
-        if(root)root.innerHTML=`<div class="landing-calendar-loading">근무표 연결 재시도 중... (${attempt}/3)</div>`;
-        setTimeout(()=>loadPublicLanding(attempt+1),delays[attempt]);
-        return;
-      }
-      if(root && !cached?.data){
-        const setupHint=!String(CONFIG.PUBLIC_FEED_SHEET_ID||"").trim()
-          ? '<br><small style="margin-top:8px">관리자: Apps Script에서 setupPublicCalendarFeed() 실행 후 config.js에 공개 피드 ID를 넣어줘.</small>'
-          : '<br><small style="margin-top:8px">로그인 기능은 그대로 사용할 수 있어.</small>';
-        root.innerHTML=`<div class="landing-calendar-loading">근무표 연결이 잠시 불안정해.<br><button id="landing-retry" class="ghost compact" type="button" style="margin-top:10px">다시 불러오기</button>${setupHint}<br><small style="margin-top:8px;max-width:80%;word-break:break-word">${esc(e.message||String(e))}</small></div>`;
-      }
-      setTimeout(()=>{
-        const b=$("#landing-retry");
-        if(b)b.onclick=()=>loadPublicLanding(1);
-      },0);
+      console.warn(`첫 화면 정보 로딩 실패 ${attempt}/3`,e);
+      if(!cached && attempt<3)setTimeout(()=>loadPublicHome(force,attempt+1),attempt*700);
     }
   }
-  function renderLandingCalendar(){
-    const d=state.publicLandingData;
-    if(!d)return;
-    $("#landing-calendar-month").textContent=fmtMonth(ui.landingMonth);
-    $("#landing-calendar-root").innerHTML=calendarHTML(d,ui.landingMonth,null,{publicMode:true});
-  }
-  function bindLandingCalendar(){
-    const prev=$("#landing-prev"),now=$("#landing-now"),next=$("#landing-next");
-    if(prev)prev.onclick=()=>{ui.landingMonth=new Date(ui.landingMonth.getFullYear(),ui.landingMonth.getMonth()-1,1);renderLandingCalendar();};
-    if(now)now.onclick=()=>{ui.landingMonth=firstOfMonth(new Date());renderLandingCalendar();};
-    if(next)next.onclick=()=>{ui.landingMonth=new Date(ui.landingMonth.getFullYear(),ui.landingMonth.getMonth()+1,1);renderLandingCalendar();};
-  }
+
   function studentQuickLinks(d){
     const s=dataSettings(d), links=[];
     if(s.HANDOVER_PDF_URL) links.push({icon:"📄",label:s.HANDOVER_PDF_LABEL||"근로장학생 업무 인수인계서",url:s.HANDOVER_PDF_URL,desc:"업무 시작 전 참고자료"});
@@ -511,8 +379,7 @@
   // ---------------- login / nav ----------------
   async function init(){
     $("#login-system-name").textContent=CONFIG.SYSTEM_NAME||"근로장학생 근무관리";$("#login-term").textContent=CONFIG.TERM_NAME||"";$("#sidebar-name").textContent=CONFIG.SYSTEM_NAME||"근로장학생 관리";$("#sidebar-term").textContent=CONFIG.TERM_NAME||"";$("#mode-badge").textContent=CONFIG.DEMO_MODE?"DEMO":"LIVE";$("#today-label").textContent=new Intl.DateTimeFormat("ko-KR",{dateStyle:"full"}).format(new Date());
-    bindLandingCalendar();
-    loadPublicLanding();
+    loadPublicHome();
     $$('[data-login-tab]').forEach(b=>b.onclick=()=>{$$('[data-login-tab]').forEach(x=>x.classList.toggle('active',x===b));$("#student-login-form").classList.toggle("hidden",b.dataset.loginTab!=="student");$("#admin-login-form").classList.toggle("hidden",b.dataset.loginTab!=="admin");$("#demo-preview-box").classList.toggle("hidden",!CONFIG.DEMO_MODE||b.dataset.loginTab!=="student");$("#login-student-resources").classList.toggle("hidden",b.dataset.loginTab!=="student");});
     $("#student-login-form").onsubmit=studentLogin;$("#admin-login-form").onsubmit=adminLogin;$$('.logout-btn').forEach(b=>b.onclick=logout);$$('.refresh-btn').forEach(b=>b.onclick=()=>state.view&&navigate(state.view,{force:true}));
     $$('[data-demo="admin"]').forEach(b=>b.onclick=()=>$("#admin-pin").value="1234");
@@ -553,7 +420,7 @@
     $(".main").classList.toggle("student-mode",state.mode==="student");
     navigate(view,{force:!opts.useLoaded});
   }
-  function logout(){Object.assign(state,{mode:null,auth:null,student:null,adminData:null,studentData:null,view:null});$("#app-shell").classList.add("hidden");$("#login-screen").classList.remove("hidden");closeModal();}
+  function logout(){Object.assign(state,{mode:null,auth:null,student:null,adminData:null,studentData:null,view:null});$("#app-shell").classList.add("hidden");$("#login-screen").classList.remove("hidden");closeModal();loadPublicHome(true);}
   function bindNav(){$$("#admin-nav [data-view],#student-bottom-nav [data-view]").forEach(b=>b.onclick=()=>navigate(b.dataset.view));}
   async function navigate(view,opts={}){state.view=view;$$('#admin-nav [data-view],#student-bottom-nav [data-view]').forEach(b=>b.classList.toggle('active',b.dataset.view===view));const titles={
     "admin-dashboard":["WORKSPACE","대시보드"],"admin-schedule":["SCHEDULE","근무표"],"admin-absence":["ABSENCE & SUBSTITUTE","결근·대타"],"admin-extra":["EXTRA SHIFT","추가근무"],"admin-students":["STUDENTS","학생관리"],"admin-budget":["BUDGET & HOURS","예산·시간"],"admin-notices":["NOTICE","공지"],"admin-settings":["SETTINGS","운영설정"],
@@ -684,13 +551,72 @@
   function openBudgetModal(national,internal){showModal('총예산 설정',`<form id="budget-form"><div class="form-grid"><label>국가근로 총예산<input type="number" min="0" name="national" value="${national}"></label><label>교내근로 총예산<input type="number" min="0" name="internal" value="${internal}"></label></div><div class="source-note" style="margin-top:12px">예산이 아직 확정되지 않았으면 0으로 저장해도 돼. 월별 예상 소요액은 계속 계산돼.</div><div class="form-actions"><button type="button" class="ghost modal-cancel">취소</button><button class="primary">저장</button></div></form>`);$('.modal-cancel').onclick=closeModal;$('#budget-form').onsubmit=async e=>{e.preventDefault();try{await api('saveBudget',{...state.auth,...Object.fromEntries(new FormData(e.target))});closeModal();toast('예산을 저장했어.');navigate('admin-budget',{force:true});}catch(err){toast(err.message);}};}
 
   // ---------------- ADMIN NOTICE ----------------
-  function renderAdminNotices(){const d=state.adminData;$("#page-content").innerHTML=`<div class="section-head" style="margin-top:0"><div><h3>학생 공지</h3></div><button id="new-notice" class="primary">공지 등록</button></div>${noticeList(d,true)}`;$('#new-notice').onclick=openNoticeModal;$$('.del-notice').forEach(b=>b.onclick=()=>confirm('공지를 삭제할까?')&&actAndReload('deleteNotice',{noticeId:b.dataset.id},'삭제했어.','admin-notices'));}
+  function renderAdminNotices(){
+    const d=state.adminData;
+    const publicNotices=(d.publicNotices||[]).filter(x=>x.ACTIVE!=="N").sort((a,b)=>String(a.DATE).localeCompare(String(b.DATE)));
+
+    $("#page-content").innerHTML=`
+      <div class="section-head" style="margin-top:0">
+        <div><h3>첫 화면 공지</h3><p>로그인 전 녹색 첫 화면에 날짜별로 최대 3건까지 노출돼.</p></div>
+        <button id="new-public-notice" class="primary">첫 화면 공지 등록</button>
+      </div>
+      <div class="public-notice-grid">
+        ${publicNotices.map(n=>`<div class="public-notice-card">
+          <div class="top">
+            <div><span class="public-notice-date">${esc(fmtDate(n.DATE))}</span><h4>${esc(n.TITLE||"안내")}</h4></div>
+            <button class="danger compact del-public-notice" data-id="${esc(n.PUBLIC_NOTICE_ID)}">삭제</button>
+          </div>
+          <p>${esc(n.CONTENT||"")}</p>
+          ${n.LINK?`<a href="${esc(n.LINK)}" target="_blank" rel="noopener">링크 열기 ↗</a>`:""}
+        </div>`).join("")||'<div class="card"><div class="empty">첫 화면 공지가 없어.</div></div>'}
+      </div>
+
+      <div class="section-head">
+        <div><h3>학생 로그인 후 공지</h3><p>학생 홈의 ‘오늘의 안내’ 영역에 표시되는 기존 공지야.</p></div>
+        <button id="new-notice" class="primary">학생 공지 등록</button>
+      </div>
+      ${noticeList(d,true)}
+    `;
+
+    $('#new-public-notice').onclick=openPublicNoticeModal;
+    $$('.del-public-notice').forEach(b=>b.onclick=()=>confirm('이 첫 화면 공지를 삭제할까?')&&actAndReload('deletePublicNotice',{publicNoticeId:b.dataset.id},'첫 화면 공지를 삭제했어.','admin-notices'));
+    $('#new-notice').onclick=openNoticeModal;
+    $$('.del-notice').forEach(b=>b.onclick=()=>confirm('공지를 삭제할까?')&&actAndReload('deleteNotice',{noticeId:b.dataset.id},'삭제했어.','admin-notices'));
+  }
+
+  function openPublicNoticeModal(){
+    showModal('첫 화면 공지 등록',`<form id="public-notice-form"><div class="form-grid">
+      <label>날짜<input type="date" name="date" value="${isoDate(new Date())}" required></label>
+      <label>제목<input name="title" placeholder="예: 9월 근로 시작 안내" required></label>
+      <label class="full">내용<textarea name="content" placeholder="학생들이 로그인 전에 알아야 할 내용을 적어줘." required></textarea></label>
+      <label class="full">링크<input type="url" name="link" placeholder="https://... (선택)"></label>
+    </div><div class="form-actions"><button type="button" class="ghost modal-cancel">취소</button><button class="primary">등록</button></div></form>`);
+    $('.modal-cancel').onclick=closeModal;
+    $('#public-notice-form').onsubmit=async e=>{
+      e.preventDefault();
+      try{
+        await api('createPublicNotice',{...state.auth,...Object.fromEntries(new FormData(e.target))});
+        closeModal();
+        clearPublicHomeCache();
+        loadPublicHome(true);
+        toast('첫 화면 공지를 등록했어.');
+        navigate('admin-notices',{force:true});
+      }catch(err){toast(err.message);}
+    };
+  }
+
   function openNoticeModal(){showModal('공지 등록',`<form id="notice-form"><div class="form-grid"><label>날짜<input type="date" name="date" value="${isoDate(new Date())}" required></label><label>제목<input name="title" value="오늘의 안내" required></label><label class="full">내용<textarea name="content" required></textarea></label><label class="full">링크<input type="url" name="link" placeholder="https://..."></label></div><div class="form-actions"><button type="button" class="ghost modal-cancel">취소</button><button class="primary">등록</button></div></form>`);$('.modal-cancel').onclick=closeModal;$('#notice-form').onsubmit=async e=>{e.preventDefault();try{await api('createNotice',{...state.auth,...Object.fromEntries(new FormData(e.target))});closeModal();toast('공지를 등록했어.');navigate('admin-notices',{force:true});}catch(err){toast(err.message);}};}
 
   // ---------------- ADMIN SETTINGS ----------------
   function renderAdminSettings(){
     const d=state.adminData,s=dataSettings(d),holidays=d.holidays.filter(x=>x.ACTIVE==="Y").sort((a,b)=>a.DATE.localeCompare(b.DATE)),events=(d.events||[]).filter(x=>x.ACTIVE==="Y").sort((a,b)=>a.DATE.localeCompare(b.DATE));
-    $("#page-content").innerHTML=`<form id="settings-form">
+    $("#page-content").innerHTML=`<div class="version-panel">
+      <div class="version-main">
+        <span class="version-mark">${esc(APP_VERSION)}</span>
+        <div><strong>근로장학생 관리 시스템</strong><small>현재 설치 버전을 여기서 바로 확인할 수 있어.</small></div>
+      </div>
+      <div><small>Frontend ${esc(APP_VERSION)} · Backend ${esc(d.backendVersion||"확인 불가")}</small></div>
+    </div><form id="settings-form">
       <div class="settings-grid">
         <div class="settings-block">
           <h3>학기·방학 기간</h3>
@@ -774,11 +700,12 @@
     $('#settings-form').onsubmit=async e=>{
       e.preventDefault();
       try{
-        await api('saveSettings',{...state.auth,...Object.fromEntries(new FormData(e.target))});
+        const values=Object.fromEntries(new FormData(e.target));
+        await api('saveSettings',{...state.auth,...values});
         toast('운영설정을 저장했어.');
-        state.publicSettings=null;
-        clearCachedPublicFeed();
-        loadPublicLanding();
+        applyLandingText(values);
+        clearPublicHomeCache();
+        loadPublicHome(true);
         navigate('admin-settings',{force:true});
       }catch(err){toast(err.message);}
     };
@@ -801,8 +728,6 @@
       try{
         await api('upsertEvent',{...state.auth,...Object.fromEntries(new FormData(e.target))});
         closeModal();toast('업무 이벤트를 추가했어.');
-        state.publicLandingData=null;
-        loadPublicLanding();
         navigate('admin-settings',{force:true});
       }catch(err){toast(err.message);}
     };

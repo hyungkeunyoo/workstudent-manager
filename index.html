@@ -13,34 +13,19 @@
   <section id="login-screen" class="login-shell">
     <div class="login-visual">
       <div class="brand-mark">W</div>
-      <div class="landing-brand-copy">
+
+      <div class="landing-main">
         <p class="eyebrow">WORK STUDENT MANAGER</p>
         <h1 id="landing-title">한양대학교 ERICA 발전협력팀<br>근로장학생 관리 시트</h1>
         <p id="landing-description" class="login-copy">Google Sheet는 기록 원본으로 남기고, 학생과 직원은 웹에서 필요한 일만 처리하는 근로장학생 관리도구.</p>
+
+        <div id="landing-public-notices" class="landing-public-notices hidden"></div>
       </div>
+
       <div class="feature-chips">
         <span>개인 달력</span><span>주·월 근무표</span><span>공휴일 자동 반영</span><span>결근·대타</span><span>예산 예측</span>
       </div>
     </div>
-
-    <section class="landing-calendar-section">
-      <div class="landing-calendar-head">
-        <div>
-          <p class="eyebrow green">MONTHLY SCHEDULE</p>
-          <h2>이번 달 근무표</h2>
-          <p>로그인 전에는 전체 근무자 일정만 간단히 보여줘.</p>
-        </div>
-        <div class="group">
-          <button id="landing-prev" class="ghost compact" type="button">←</button>
-          <button id="landing-now" class="ghost compact" type="button">이번 달</button>
-          <button id="landing-next" class="ghost compact" type="button">→</button>
-        </div>
-      </div>
-      <div id="landing-calendar-month" class="landing-calendar-month"></div>
-      <div id="landing-calendar-root" class="landing-calendar-root">
-        <div class="landing-calendar-loading">근무표 불러오는 중...</div>
-      </div>
-    </section>
 
     <div class="login-panel">
       <div class="login-card">
@@ -60,7 +45,7 @@
 
         <div id="demo-preview-box" class="demo-preview hidden">
           <strong>실제 2학기 데이터 미리보기</strong>
-          <p>원본 파일에는 학번이 없어 데모에서는 이름을 골라 학생 화면을 바로 볼 수 있어. 박지선을 선택하면 출근불가→대타모집 표시도 확인할 수 있어.</p>
+          <p>원본 파일에는 학번이 없어 데모에서는 이름을 골라 학생 화면을 바로 볼 수 있어.</p>
           <select id="demo-student-select"></select>
           <button id="demo-preview-btn" class="soft wide" type="button">선택 학생으로 미리보기</button>
         </div>
