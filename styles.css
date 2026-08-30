@@ -766,3 +766,15 @@ tr:last-child td{border-bottom:0}
     grid-template-columns:minmax(0,1.15fr) minmax(390px,.85fr) !important;
   }
 }
+
+
+/* =========================================================
+   V0.2.7.2 HOTFIX — 로그인 화면 hidden 우선순위 복구
+   로그인 후에는 login-screen이 무조건 사라져야 한다.
+   ========================================================= */
+#login-screen.hidden{
+  display:none !important;
+}
+#app-shell.hidden{
+  display:none !important;
+}
