@@ -268,7 +268,11 @@
     return (d.students||[]).filter(x=>x.ACTIVE==="Y").map(st=>({student:st,...(map[st.STUDENT_KEY]||{maxHours:0,weekStart:"",period:"학기중",limit:num(s.SEMESTER_WEEK_LIMIT)})}));
   }
 
-  async function loadPublicLanding(){
+  async function loadPublicLanding(attempt=1){
+    const root=$("#landing-calendar-root");
+    if(attempt===1 && root){
+      root.innerHTML='<div class="landing-calendar-loading">근무표 불러오는 중...</div>';
+    }
     try{
       const r=await api("getPublicLanding");
       state.publicLandingData=r;
@@ -286,9 +290,18 @@
       }
       renderLandingCalendar();
     }catch(e){
-      console.warn("공개 랜딩 데이터 로딩 실패",e);
-      const root=$("#landing-calendar-root");
-      if(root)root.innerHTML='<div class="landing-calendar-loading">근무표를 불러오지 못했어. 로그인 기능은 정상적으로 사용할 수 있어.</div>';
+      console.warn(`공개 랜딩 데이터 로딩 실패 ${attempt}/4`,e);
+      if(attempt<4){
+        const delays=[0,700,1600,3200];
+        if(root)root.innerHTML=`<div class="landing-calendar-loading">근무표 연결 재시도 중... (${attempt}/3)</div>`;
+        setTimeout(()=>loadPublicLanding(attempt+1),delays[attempt]);
+        return;
+      }
+      if(root)root.innerHTML='<div class="landing-calendar-loading">근무표 연결이 잠시 불안정해.<br><button id="landing-retry" class="ghost compact" type="button" style="margin-top:10px">다시 불러오기</button><br><small style="margin-top:8px">로그인 기능은 그대로 사용할 수 있어.</small></div>';
+      setTimeout(()=>{
+        const b=$("#landing-retry");
+        if(b)b.onclick=()=>loadPublicLanding(1);
+      },0);
     }
   }
   function renderLandingCalendar(){
