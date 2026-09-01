@@ -1,6 +1,6 @@
 (() => {
   const CONFIG = window.WORK_CONFIG || {};
-  const APP_VERSION = CONFIG.APP_VERSION || "V0.2.7.2";
+  const APP_VERSION = CONFIG.APP_VERSION || "V0.2.7.3";
   const DAYS = ["월","화","수","목","금"];
   const ALL_DAYS = ["일","월","화","수","목","금","토"];
   const state = { mode:null, auth:null, student:null, adminData:null, studentData:null, publicHome:null, view:null };
@@ -453,15 +453,10 @@
   }
   function eventInterval_(e){
     const m=String(e?.label||"").match(/^(\d{1,2}:\d{2})~(\d{1,2}:\d{2})$/);
-    if(!m) return null;
-
-    const normalize = t => t.padStart(5,"0");
-
-    return {
-        start: normalize(m[1]),
-        end: normalize(m[2])
-    };
-}
+    if(!m)return null;
+    const normalize=t=>t.padStart(5,"0");
+    return {start:normalize(m[1]),end:normalize(m[2])};
+  }
   function groupCalendarEvents_(events){
     const timed=events.map((e,i)=>({e,i,iv:eventInterval_(e)}));
     const result=[], withTime=timed.filter(x=>x.iv).sort((a,b)=>a.iv.start.localeCompare(b.iv.start)||a.iv.end.localeCompare(b.iv.end));
